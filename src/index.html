@@ -500,7 +500,6 @@ document.getElementById('pickBtn').addEventListener('click', async ()=>{
     rootPath = selected;
     document.getElementById('status').textContent = 'Scanning folder...';
     const files = await invoke('scan_folder', { path: rootPath });
-    await invoke('set_share_folder', { path: rootPath });
     const seen = {};
     allFiles = files.map(f=>{
       const category = categorize(f.ext);
@@ -820,13 +819,13 @@ shareStartBtn.addEventListener('click', async ()=>{
   shareError.style.display = 'none';
 
   try{
-    await invoke('set_share_folder', { path: rootPath });
-    const res = await invoke('start_sharing', { password: pw, port: 8080 });
+    const url = await invoke('start_sharing', { folder: rootPath, password: pw, port: 8080 });
     sharingActive = true;
     shareForm.style.display = 'none';
     shareActive.style.display = 'block';
-    shareUrlText.textContent = res.url;
-    shareQr.innerHTML = res.qr;
+    shareUrlText.textContent = url;
+    // Generate QR code using a simple approach
+    shareQr.innerHTML = '<div style="background:white;padding:10px;display:inline-block;border:2px solid var(--ink);font-size:10px;font-family:monospace;word-break:break-all;max-width:200px;">' + url + '</div>';
     shareToggle.classList.add('active');
   }catch(e){
     shareError.textContent = String(e);

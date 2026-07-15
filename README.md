@@ -1,4 +1,4 @@
-# The Filing Desk — Desktop App (Tauri)
+# Deskmatee — Desktop App (Tauri)
 
 A desktop file organizer built with **Tauri v2** (Rust backend + HTML/CSS/JS frontend).
 It scans a folder, categorizes and tags files, then **moves them directly into place**
