@@ -1,8 +1,8 @@
-# AI Companion for "The Filing Desk"
+# AI Companion for "deskmatee"
 
 ## Overview
 
-Add an AI chat sidebar to The Filing Desk file organizer, powered by Groq's free API. The companion can chat generally, answer questions about scanned files, and suggest organization strategies.
+Add an AI chat sidebar to deskmatee file organizer, powered by Groq's free API. The companion can chat generally, answer questions about scanned files, and suggest organization strategies.
 
 ## Architecture
 
@@ -32,7 +32,7 @@ User types message
 
 ## System Prompt
 
-"You are a helpful file organization assistant called 'The Filing Desk Companion'. The user has scanned a folder with [N] files across [M] categories. You can help with: file organization advice, answering questions about their files, general assistance. Be concise and helpful."
+"You are a helpful file organization assistant called 'deskmatee AI'. The user has scanned a folder with [N] files across [M] categories. You can help with: file organization advice, answering questions about their files, general assistance. Be concise and helpful."
 
 ## UI Components
 

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>The Filing Desk — Smart File Organizer</title>
+<title>deskmatee — Smart File Organizer</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -157,6 +157,14 @@
   .note{
     font-size:11.5px; color:var(--ink-soft); margin-top:10px; line-height:1.5; font-family:'IBM Plex Mono', monospace;
   }
+  .history-item{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:8px 12px; border:1px solid var(--line); border-radius:2px; margin-top:6px;
+    background:var(--card); font-size:12px;
+  }
+  .history-item .h-date{ color:var(--ink-soft); font-family:'IBM Plex Mono',monospace; font-size:11px; }
+  .history-item .h-folder{ color:var(--ink); font-weight:500; }
+  .history-item .h-count{ font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--ink-soft); }
   #status{ font-size:12px; color:var(--rust); font-family:'IBM Plex Mono', monospace; margin-top:8px; min-height:16px; }
 
   /* --- AI Companion Sidebar --- */
@@ -312,6 +320,180 @@
   .share-status{ font-size:12px; font-family:'IBM Plex Mono', monospace; text-align:center; padding:8px; }
   .share-status.active{ color:var(--forest); }
   .share-status.error{ color:var(--rust); }
+
+  /* --- File Preview Overlay --- */
+  .preview-overlay{
+    position:fixed; inset:0; background:rgba(32,41,31,0.92); z-index:300;
+    display:none; align-items:center; justify-content:center;
+    flex-direction:column; padding:20px;
+  }
+  .preview-overlay.open{ display:flex; }
+  .preview-close{
+    position:fixed; top:16px; right:20px; z-index:301;
+    width:40px; height:40px; border-radius:50%;
+    background:rgba(242,234,216,0.15); border:2px solid rgba(242,234,216,0.3);
+    color:var(--paper); font-size:20px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    transition:background .15s;
+  }
+  .preview-close:hover{ background:var(--rust); border-color:var(--rust); }
+  .preview-content{
+    max-width:90vw; max-height:85vh; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; overflow:auto;
+  }
+  .preview-content img{
+    max-width:100%; max-height:80vh; border-radius:4px; box-shadow:0 8px 40px rgba(0,0,0,0.4);
+  }
+  .preview-content video{ max-width:100%; max-height:80vh; border-radius:4px; }
+  .preview-content audio{ width:400px; max-width:90vw; }
+  .preview-content .pdf-frame{
+    width:80vw; height:85vh; max-width:1000px; border:none; border-radius:4px;
+    background:white;
+  }
+  .preview-content .text-frame{
+    background:var(--card); border:2px solid var(--ink); border-radius:4px;
+    padding:20px 24px; max-width:900px; width:90vw; max-height:80vh; overflow:auto;
+    font-family:'IBM Plex Mono', monospace; font-size:13px; line-height:1.6;
+    white-space:pre-wrap; word-break:break-word; color:var(--ink);
+  }
+  .preview-content .text-frame .line-numbers{
+    color:var(--ink-soft); user-select:none; text-align:right;
+    padding-right:12px; border-right:1px solid var(--line); margin-right:12px;
+    display:inline-block; min-width:30px;
+  }
+  .preview-meta{
+    color:rgba(242,234,216,0.7); font-family:'IBM Plex Mono', monospace; font-size:11px;
+    margin-top:12px; text-align:center;
+  }
+  .preview-actions{
+    display:flex; gap:10px; margin-top:16px;
+  }
+  .preview-actions button{
+    background:rgba(242,234,216,0.1); color:var(--paper); border:1.5px solid rgba(242,234,216,0.3);
+    box-shadow:none;
+  }
+  .preview-actions button:hover{
+    background:var(--rust); border-color:var(--rust); box-shadow:none; transform:none;
+  }
+
+  /* --- Plan Review Modal --- */
+  .plan-overlay{
+    position:fixed; inset:0; background:rgba(32,41,31,0.6); z-index:250;
+    display:none; align-items:center; justify-content:center; padding:20px;
+  }
+  .plan-overlay.open{ display:flex; }
+  .plan-modal{
+    background:var(--card); border:2px solid var(--ink); border-radius:2px;
+    width:700px; max-width:95vw; max-height:85vh; display:flex; flex-direction:column;
+    box-shadow:var(--shadow);
+  }
+  .plan-header{
+    padding:16px 20px; border-bottom:2px solid var(--ink);
+    display:flex; align-items:center; gap:12px;
+  }
+  .plan-header h3{ font-family:'Fraunces', serif; font-size:18px; margin:0; }
+  .plan-list{
+    flex:1; overflow-y:auto; padding:12px 20px; display:flex; flex-direction:column; gap:6px;
+  }
+  .plan-item{
+    display:grid; grid-template-columns:1fr auto auto; gap:10px; align-items:center;
+    padding:8px 10px; border:1px solid var(--line); border-radius:2px; font-size:12px;
+  }
+  .plan-item .pname{ font-weight:500; word-break:break-word; }
+  .plan-item .ppath{ font-size:10px; color:var(--ink-soft); font-family:'IBM Plex Mono',monospace; }
+  .plan-item select{
+    font-family:'IBM Plex Mono',monospace; font-size:11px; padding:3px 6px;
+    border:1.5px solid var(--ink); border-radius:2px; background:var(--paper);
+  }
+  .plan-item .pexclude{
+    display:flex; align-items:center; gap:4px; white-space:nowrap; font-size:11px; color:var(--ink-soft);
+  }
+  .plan-item .pexclude input{ cursor:pointer; }
+  .plan-item.excluded{ opacity:.45; }
+  .plan-item .pcat-orig{ font-size:10px; color:var(--ink-soft); }
+  .plan-footer{
+    padding:14px 20px; border-top:2px solid var(--ink);
+    display:flex; justify-content:space-between; align-items:center;
+  }
+
+  /* ===== RESPONSIVE — Tablet ===== */
+  @media (max-width: 768px) {
+    .wrap{ padding:20px 16px 80px; }
+    header.top{ flex-direction:column; align-items:flex-start; gap:12px; }
+    header.top .tagline{ text-align:left; max-width:100%; font-size:12px; }
+    h1{ font-size:32px; }
+
+    .cabinet{
+      flex-direction:row; overflow-x:auto; gap:4px;
+      -webkit-overflow-scrolling:touch; scrollbar-width:none;
+    }
+    .cabinet::-webkit-scrollbar{ display:none; }
+    .tab{
+      clip-path:none; border-bottom:2px solid var(--ink); border-right:none;
+      padding:8px 14px; flex-shrink:0;
+    }
+    .tab:last-child{ border-bottom:2px solid var(--ink); border-right:none; }
+
+    .toolbar{ gap:8px; }
+    .search-card{ min-width:0; }
+    .search-card input{ font-size:12px; padding:8px 6px; }
+
+    .frow{
+      grid-template-columns:1fr auto; gap:8px; padding:8px 10px;
+    }
+    .fdate, .ftag{ display:none; }
+
+    .export-bar{ flex-direction:column; text-align:center; gap:12px; padding:14px 16px; }
+    .export-bar p{ max-width:100%; }
+    .export-bar button{ width:100%; }
+
+    .intake{ padding:20px 16px; }
+    .intake h2{ font-size:18px; }
+    .intake p{ font-size:12px; }
+  }
+
+  /* ===== RESPONSIVE — Phone ===== */
+  @media (max-width: 480px) {
+    h1{ font-size:28px; }
+    .brand-tab{ font-size:10px; padding:4px 12px 3px; }
+    .intake h2{ font-size:16px; }
+    .intake p{ font-size:11px; }
+    button{ padding:10px 16px; font-size:12px; }
+
+    .ai-sidebar{
+      width:100%; bottom:0; top:auto; height:75vh;
+      border-radius:16px 16px 0 0; border-left:none; border-top:2px solid var(--ink);
+      transform:translateY(100%);
+    }
+    .ai-sidebar.open{ transform:translateY(0); }
+
+    .share-panel{
+      width:100%; border-radius:16px 16px 0 0;
+      border-right:none; border-bottom:none; border-top:2px solid var(--ink);
+    }
+
+    .ai-toggle{ bottom:20px; right:14px; width:42px; height:42px; font-size:18px; }
+    .share-toggle{ bottom:72px; right:14px; width:42px; height:42px; font-size:16px; }
+  }
+
+  /* ===== RESPONSIVE — Very small phones ===== */
+  @media (max-width: 380px) {
+    .ai-sidebar{ height:85vh; }
+    .modal{ padding:20px; width:95vw; }
+    .modal h3{ font-size:18px; }
+  }
+
+  /* ===== ACCESSIBILITY ===== */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after{
+      animation-duration:0.01ms !important;
+      animation-iteration-count:1 !important;
+      transition-duration:0.01ms !important;
+    }
+  }
+  button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible{
+    outline:2px solid var(--rust); outline-offset:2px;
+  }
 </style>
 </head>
 <body class="noise">
@@ -319,10 +501,10 @@
 
   <header class="top">
     <div>
-      <span class="brand-tab">est. today · v1</span>
-      <h1>The Filing<br><em>Desk</em></h1>
+      <span class="brand-tab">beta · v1.0.0-1</span>
+      <h1>desk<br><em>matee</em></h1>
     </div>
-    <p class="tagline">Point it at a messy folder. It sorts, tags, and moves your files into place — locally, nothing ever uploads anywhere.</p>
+    <p class="tagline">Point it at a messy folder. It sorts, tags, and moves your files into place — locally, nothing ever uploads anywhere. <a href="https://github.com/LikeNmuFF/deskmatee/issues" target="_blank" style="color:var(--rust);text-decoration:underline;font-weight:500;">⭐ Rate & Feedback</a></p>
   </header>
 
   <div class="intake" id="intake">
@@ -355,7 +537,18 @@
         <h3>Ready to actually move the files?</h3>
         <p>We'll create the category folders inside your selected folder and move every file into place. A confirmation step keeps you safe.</p>
       </div>
-      <button id="genScript">⬇ Organize Files</button>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button id="undoBtn" class="ghost" style="display:none;" title="Undo last organize">↩ Undo Last</button>
+        <button id="planBtn">📋 Review Plan</button>
+        <button id="genScript" style="display:none;">⬇ Organize Files</button>
+      </div>
+    </div>
+    <div class="history-bar" id="historyBar" style="display:none;margin-top:12px;">
+      <div class="history-header" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:8px 0;">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-soft);">Move History</span>
+        <span id="historyToggle" style="font-size:11px;color:var(--ink-soft);">▼ show</span>
+      </div>
+      <div id="historyList" style="display:none;"></div>
     </div>
     <p class="note">Tip: back up the folder first. The move happens in place — files are sorted into subfolders like <span style="background:var(--paper-deep);padding:1px 5px;">PDFs/</span>, <span style="background:var(--paper-deep);padding:1px 5px;">Spreadsheets/Finance/</span>, etc.</p>
   </div>
@@ -369,8 +562,8 @@
 <div class="ai-sidebar" id="aiSidebar">
   <div class="ai-sidebar-header">
     <div>
-      <h3>Filing Desk <em style="color:var(--rust)">AI</em></h3>
-      <span class="subtitle">powered by Groq</span>
+      <h3>deskmatee <em style="color:var(--rust)">AI</em></h3>
+      <span class="subtitle" id="aiProviderLabel">powered by Groq</span>
     </div>
     <div class="ai-sidebar-actions">
       <button id="aiSettingsBtn" title="Settings">⚙</button>
@@ -381,7 +574,7 @@
   <div class="ai-messages" id="aiMessages">
     <div class="ai-welcome">
       <h4>How can I help?</h4>
-      <p>Ask me anything about your files, or get tips on organizing them.<br>Make sure to set your Groq API key in settings first.</p>
+      <p>Ask me anything about your files, or get tips on organizing them.<br>Using <strong>Groq</strong> — set your API key in settings first.</p>
     </div>
   </div>
   <div class="ai-input-area">
@@ -394,17 +587,39 @@
 <div class="modal-overlay" id="settingsOverlay">
   <div class="modal">
     <h3>AI Settings</h3>
-    <label for="apiKeyInput">Groq API Key</label>
-    <input type="password" id="apiKeyInput" placeholder="gsk_...">
-    <label for="modelSelect">Model</label>
-    <select id="modelSelect">
-      <option value="llama-3.3-70b-versatile">Llama 3.3 70B (Recommended)</option>
-      <option value="llama-3.1-8b-instant">Llama 3.1 8B (Faster)</option>
-      <option value="gemma2-9b-it">Gemma 2 9B</option>
+    <label for="providerSelect">Provider</label>
+    <select id="providerSelect">
+      <option value="groq">Groq (Free tier)</option>
+      <option value="openai">OpenAI</option>
+      <option value="claude">Claude (Anthropic)</option>
+      <option value="gemini">Gemini (Google, Free tier)</option>
     </select>
+    <label for="apiKeyInput">API Key</label>
+    <input type="password" id="apiKeyInput" placeholder="Enter your API key...">
+    <label for="modelSelect">Model</label>
+    <select id="modelSelect"></select>
     <div class="modal-actions">
       <button class="ghost" id="settingsCancel">Cancel</button>
       <button id="settingsSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Plan Review Modal -->
+<div class="plan-overlay" id="planOverlay">
+  <div class="plan-modal">
+    <div class="plan-header">
+      <h3>Review Organize Plan</h3>
+      <span id="planSummary" style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-soft);"></span>
+      <button class="ghost" id="planClose" style="width:28px;height:28px;padding:0;font-size:12px;margin-left:auto;">✕</button>
+    </div>
+    <div class="plan-list" id="planList"></div>
+    <div class="plan-footer">
+      <div style="font-size:12px;color:var(--ink-soft);" id="planFooterInfo"></div>
+      <div style="display:flex;gap:8px;">
+        <button class="ghost" id="planCancel">Cancel</button>
+        <button id="planExecute">⬇ Move Selected Files</button>
+      </div>
     </div>
   </div>
 </div>
@@ -441,9 +656,18 @@
   </div>
 </div>
 
+<!-- File Preview Overlay -->
+<div class="preview-overlay" id="previewOverlay">
+  <div class="preview-close" id="previewClose">✕</div>
+  <div class="preview-content" id="previewContent"></div>
+  <div class="preview-actions" id="previewActions"></div>
+  <div class="preview-meta" id="previewMeta"></div>
+</div>
+
 <script type="module">
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
+import { openPath } from '@tauri-apps/plugin-opener';
 
 const CATEGORY_RULES = [
   { name:'PDFs', match:['pdf'] },
@@ -583,8 +807,8 @@ function renderFileList(){
     el.innerHTML = `<div class="empty-state">No files match. Try a different search or folder tab.</div>`;
     return;
   }
-  el.innerHTML = list.slice(0,300).map(f=>`
-    <div class="frow ${f.isDupe?'dupe':''}">
+  el.innerHTML = list.slice(0,300).map((f,i)=>`
+    <div class="frow ${f.isDupe?'dupe':''}" onclick="handleFileClick(${i})" style="cursor:pointer;" title="Click to preview or open">
       <div>
         <div class="fname">${escapeHtml(f.name)}</div>
         <span class="fpath">${escapeHtml(f.rel_path)}${f.isDupe? ' · possible duplicate':''}</span>
@@ -599,51 +823,265 @@ function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+// ─── File Preview ───
+const PREVIEW_IN_APP = ['jpg','jpeg','png','gif','svg','webp','bmp','ico'];
+const PREVIEW_TEXT = ['txt','md','json','js','ts','html','css','xml','csv','rs','py','toml','yaml','yml','sh','bash','java','cpp','c','h','hpp','php','rb','go','sql','ini','cfg','conf','log','env','gitignore','dockerfile','makefile','jsx','tsx','vue','svelte'];
+const PREVIEW_VIDEO = ['mp4','webm','mov','avi','mkv'];
+const PREVIEW_AUDIO = ['mp3','wav','flac','aac','ogg','m4a'];
+const PREVIEW_SYSTEM = ['pdf','doc','docx','xls','xlsx','ppt','pptx','odt','ods','odp','rtf'];
+
+function handleFileClick(idx) {
+  const filtered = getFilteredFiles();
+  const f = filtered[idx];
+  if (!f) return;
+
+  const ext = f.ext.toLowerCase();
+
+  if (PREVIEW_IN_APP.includes(ext)) {
+    previewInApp(f, 'image');
+  } else if (PREVIEW_TEXT.includes(ext)) {
+    previewInApp(f, 'text');
+  } else if (PREVIEW_VIDEO.includes(ext)) {
+    previewInApp(f, 'video');
+  } else if (PREVIEW_AUDIO.includes(ext)) {
+    previewInApp(f, 'audio');
+  } else if (PREVIEW_SYSTEM.includes(ext)) {
+    openWithSystem(f);
+  } else {
+    // For unknown types, try to open with system app
+    openWithSystem(f);
+  }
+}
+
+function getFilteredFiles() {
+  const q = document.getElementById('searchInput').value;
+  let list = allFiles.filter(f=> (activeCategory==='All' || f.category===activeCategory) && matchesSearch(f,q) );
+  list.sort((a,b)=> Number(b.lastModified) - Number(a.lastModified));
+  return list;
+}
+
+async function previewInApp(f, type) {
+  const overlay = document.getElementById('previewOverlay');
+  const content = document.getElementById('previewContent');
+  const meta = document.getElementById('previewMeta');
+  const actions = document.getElementById('previewActions');
+
+  content.innerHTML = '<div style="color:var(--paper);font-size:14px;">Loading...</div>';
+  overlay.classList.add('open');
+
+  try {
+    const result = await invoke('read_file_preview', { root: rootPath, relPath: f.rel_path });
+
+    let html = '';
+    if (type === 'image') {
+      html = `<img src="data:${result.mimeType};base64,${result.data}" alt="${escapeHtml(result.name)}">`;
+    } else if (type === 'video') {
+      html = `<video controls autoplay src="data:${result.mimeType};base64,${result.data}"></video>`;
+    } else if (type === 'audio') {
+      html = `<audio controls autoplay src="data:${result.mimeType};base64,${result.data}"></audio>`;
+    } else if (type === 'text') {
+      const lines = result.data.split('\n');
+      const numbered = lines.map((line, i) => {
+        const num = `<span class="line-numbers">${i + 1}</span>`;
+        return num + escapeHtml(line);
+      }).join('\n');
+      html = `<div class="text-frame">${numbered}</div>`;
+    }
+
+    content.innerHTML = html;
+    meta.textContent = `${result.name} — ${fmtSize(result.size)} — ${result.extension.toUpperCase()}`;
+    actions.innerHTML = `
+      <button onclick="openWithSystem(getFilteredFiles().find(f=>f.rel_path==='${f.rel_path}'))">Open with system app</button>
+      <button onclick="closePreview()">Close</button>
+    `;
+  } catch(e) {
+    content.innerHTML = `<div style="color:var(--rust);font-size:14px;">Preview failed: ${escapeHtml(String(e))}</div>`;
+    meta.textContent = f.name;
+    actions.innerHTML = `<button onclick="closePreview()">Close</button>`;
+  }
+}
+
+async function openWithSystem(f) {
+  try {
+    const sep = navigator.platform.includes('Win') ? '\\' : '/';
+    const fullPath = rootPath + sep + f.rel_path.replace(/\//g, sep);
+    await invoke('open_with_system', { path: fullPath });
+  } catch(e) {
+    alert('Failed to open file: ' + e);
+  }
+}
+
+function closePreview() {
+  const overlay = document.getElementById('previewOverlay');
+  const content = document.getElementById('previewContent');
+  overlay.classList.remove('open');
+  content.innerHTML = '';
+}
+
+document.getElementById('previewClose').addEventListener('click', closePreview);
+document.getElementById('previewOverlay').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('previewOverlay')) closePreview();
+});
+
+// Make functions available globally for onclick handlers
+window.handleFileClick = handleFileClick;
+window.openWithSystem = openWithSystem;
+window.closePreview = closePreview;
+window.getFilteredFiles = getFilteredFiles;
+
 document.getElementById('searchInput').addEventListener('input', renderFileList);
 document.getElementById('clearSearch').addEventListener('click', ()=>{
   document.getElementById('searchInput').value = '';
   renderFileList();
 });
 
-document.getElementById('genScript').addEventListener('click', async ()=>{
-  if(!allFiles.length || !rootPath) return;
-  const moves = allFiles.map(f=>{
+// ---- Plan Review & Organize ----
+let planItems = [];
+const planOverlay = document.getElementById('planOverlay');
+const planList = document.getElementById('planList');
+const planSummary = document.getElementById('planSummary');
+const planFooterInfo = document.getElementById('planFooterInfo');
+const planBtn = document.getElementById('planBtn');
+const planClose = document.getElementById('planClose');
+const planCancel = document.getElementById('planCancel');
+const planExecute = document.getElementById('planExecute');
+const genScript = document.getElementById('genScript');
+
+function buildPlan() {
+  return allFiles.map(f => {
     const sub = (f.tag ? (f.category + '/' + f.tag) : f.category);
-    return { src: f.rel_path, dest: sub + '/' + f.name };
+    return {
+      src: f.rel_path,
+      dest: sub + '/' + f.name,
+      category: f.category,
+      tag: f.tag,
+      name: f.name,
+      excluded: false,
+    };
   });
-  const ok = confirm('This will move ' + moves.length + ' files into category folders inside:\n' + rootPath + '\n\nBack up first! Continue?');
-  if(!ok) return;
-  try{
+}
+
+planBtn.addEventListener('click', () => {
+  if (!allFiles.length || !rootPath) return;
+  planItems = buildPlan();
+  renderPlan();
+  planOverlay.classList.add('open');
+});
+
+planClose.addEventListener('click', () => planOverlay.classList.remove('open'));
+planCancel.addEventListener('click', () => planOverlay.classList.remove('open'));
+
+function renderPlan() {
+  const total = planItems.length;
+  const excluded = planItems.filter(i => i.excluded).length;
+  const moving = total - excluded;
+  planSummary.textContent = `${total} file${total !== 1 ? 's' : ''}, ${moving} to move`;
+
+  const categories = [...new Set(allFiles.map(f => f.category))].sort();
+
+  planList.innerHTML = planItems.map((item, i) => `
+    <div class="plan-item${item.excluded ? ' excluded' : ''}">
+      <div>
+        <div class="pname">${escapeHtml(item.name)}</div>
+        <div class="ppath">${escapeHtml(item.src)} → <strong>${escapeHtml(item.dest)}</strong></div>
+      </div>
+      <select onchange="changeFileCategory(${i}, this.value)" ${item.excluded ? 'disabled' : ''}>
+        ${categories.map(c => `<option value="${c}" ${c === item.category ? 'selected' : ''}>${c}</option>`).join('')}
+      </select>
+      <label class="pexclude">
+        <input type="checkbox" ${item.excluded ? 'checked' : ''} onchange="toggleFileExclude(${i}, this.checked)">
+        skip
+      </label>
+    </div>
+  `).join('');
+
+  planFooterInfo.textContent = `Moving ${moving} file${moving !== 1 ? 's' : ''} into ${rootPath.split(/[\\/]/).pop() || rootPath}`;
+  planExecute.textContent = moving > 0 ? `⬇ Move ${moving} File${moving !== 1 ? 's' : ''}` : 'Nothing to move';
+  planExecute.disabled = moving === 0;
+}
+
+window.changeFileCategory = function(idx, newCategory) {
+  if (idx < 0 || idx >= planItems.length) return;
+  const item = planItems[idx];
+  item.category = newCategory;
+  const sub = (item.tag ? (item.category + '/' + item.tag) : item.category);
+  item.dest = sub + '/' + item.name;
+  renderPlan();
+};
+
+window.toggleFileExclude = function(idx, checked) {
+  if (idx < 0 || idx >= planItems.length) return;
+  planItems[idx].excluded = checked;
+  renderPlan();
+};
+
+planExecute.addEventListener('click', async () => {
+  const toMove = planItems.filter(i => !i.excluded);
+  if (!toMove.length) return;
+  const moves = toMove.map(i => ({ src: i.src, dest: i.dest }));
+  const ok = confirm(`Move ${moves.length} file(s) into category folders?\n\nFolder: ${rootPath}\n\nThis will create subfolders and move files into them.`);
+  if (!ok) return;
+
+  planOverlay.classList.remove('open');
+  try {
     document.getElementById('status').textContent = 'Organizing...';
-    const res = await invoke('organize_files', { root: rootPath, moves, dryRun: false });
-    document.getElementById('status').textContent =
-      `Done — moved ${res.moved} file(s)` + (res.failed ? `, ${res.failed} failed.` : '.');
-    if(res.failed && res.errors.length){
+    const res = await invoke('organize_files', { root: rootPath, moves, dryRun: false, conflictStrategy: 'rename' });
+    let msg = `Done — moved ${res.moved} file(s)`;
+    if (res.conflicts && res.conflicts.length) msg += `, ${res.conflicts.length} renamed (conflict)`;
+    if (res.failed) msg += `, ${res.failed} failed.`;
+    else msg += '.';
+    document.getElementById('status').textContent = msg;
+    if (res.failed && res.errors.length) {
       console.warn(res.errors);
     }
     // Re-scan to reflect new state
     const files = await invoke('scan_folder', { path: rootPath });
     const seen = {};
-    allFiles = files.map(f=>{
+    allFiles = files.map(f => {
       const category = categorize(f.ext);
       const tag = smartTag(f.name);
       const key = f.name.toLowerCase() + '|' + f.size;
       seen[key] = (seen[key]||0) + 1;
-      return { ...f, category, tag, dupeKey:key, isDupe:false };
+      return { ...f, category, tag, dupeKey: key, isDupe: false };
     });
-    allFiles.forEach(f=> f.isDupe = seen[f.dupeKey] > 1 );
+    allFiles.forEach(f => f.isDupe = seen[f.dupeKey] > 1);
     renderAll();
-  }catch(e){
+    loadMoveHistory();
+  } catch(e) {
     document.getElementById('status').textContent = 'Error: ' + e;
   }
 });
 
 // ---- AI Companion ----
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const PROVIDER_MODELS = {
+  groq: [
+    { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (Recommended)' },
+    { value: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B (Faster)' },
+    { value: 'gemma2-9b-it', label: 'Gemma 2 9B' },
+  ],
+  openai: [
+    { value: 'gpt-4o-mini', label: 'GPT-4o Mini (Recommended)' },
+    { value: 'gpt-4o', label: 'GPT-4o' },
+    { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
+  ],
+  claude: [
+    { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku (Recommended)' },
+    { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku' },
+    { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+  ],
+  gemini: [
+    { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (Recommended)' },
+    { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+    { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
+  ],
+};
+
+const PROVIDER_NAMES = { groq: 'Groq', openai: 'OpenAI', claude: 'Claude', gemini: 'Gemini' };
+
 let chatHistory = [];
-let fileContextSummary = '';
-let apiKey = localStorage.getItem('groq_api_key') || '';
-let selectedModel = localStorage.getItem('groq_model') || 'llama-3.3-70b-versatile';
+let currentProvider = localStorage.getItem('ai_provider') || 'groq';
+let apiKey = localStorage.getItem(`${currentProvider}_api_key`) || '';
+let selectedModel = localStorage.getItem(`${currentProvider}_model`) || Object.keys(PROVIDER_MODELS).length ? PROVIDER_MODELS[currentProvider][0].value : '';
 let sending = false;
 
 const aiSidebar = document.getElementById('aiSidebar');
@@ -657,29 +1095,63 @@ const aiClearBtn = document.getElementById('aiClearBtn');
 const settingsOverlay = document.getElementById('settingsOverlay');
 const apiKeyInput = document.getElementById('apiKeyInput');
 const modelSelect = document.getElementById('modelSelect');
+const providerSelect = document.getElementById('providerSelect');
 const settingsSave = document.getElementById('settingsSave');
 const settingsCancel = document.getElementById('settingsCancel');
+
+function populateModels(provider) {
+  modelSelect.innerHTML = '';
+  (PROVIDER_MODELS[provider] || []).forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m.value;
+    opt.textContent = m.label;
+    modelSelect.appendChild(opt);
+  });
+  const saved = localStorage.getItem(`${provider}_model`);
+  if (saved) modelSelect.value = saved;
+}
+
+populateModels(currentProvider);
+
+providerSelect.addEventListener('change', () => {
+  const p = providerSelect.value;
+  apiKeyInput.placeholder = p === 'groq' ? 'gsk_...' : p === 'openai' ? 'sk-...' : p === 'claude' ? 'sk-ant-...' : 'AIza...';
+  apiKeyInput.value = localStorage.getItem(`${p}_api_key`) || '';
+  populateModels(p);
+});
 
 aiToggle.addEventListener('click', ()=> aiSidebar.classList.toggle('open'));
 aiCloseBtn.addEventListener('click', ()=> aiSidebar.classList.remove('open'));
 
 aiSettingsBtn.addEventListener('click', ()=>{
+  providerSelect.value = currentProvider;
   apiKeyInput.value = apiKey;
+  apiKeyInput.placeholder = currentProvider === 'groq' ? 'gsk_...' : currentProvider === 'openai' ? 'sk-...' : currentProvider === 'claude' ? 'sk-ant-...' : 'AIza...';
+  populateModels(currentProvider);
   modelSelect.value = selectedModel;
   settingsOverlay.classList.add('open');
 });
 settingsCancel.addEventListener('click', ()=> settingsOverlay.classList.remove('open'));
 settingsSave.addEventListener('click', ()=>{
+  currentProvider = providerSelect.value;
   apiKey = apiKeyInput.value.trim();
   selectedModel = modelSelect.value;
-  localStorage.setItem('groq_api_key', apiKey);
-  localStorage.setItem('groq_model', selectedModel);
+  localStorage.setItem('ai_provider', currentProvider);
+  localStorage.setItem(`${currentProvider}_api_key`, apiKey);
+  localStorage.setItem(`${currentProvider}_model`, selectedModel);
+  // Update welcome message
+  const welcome = aiMessages.querySelector('.ai-welcome');
+  if (welcome) {
+    welcome.querySelector('p').innerHTML = `Ask me anything about your files, or get tips on organizing them.<br>Using <strong>${PROVIDER_NAMES[currentProvider]}</strong> — set your API key in settings first.`;
+  }
+  // Update provider label in sidebar header
+  document.getElementById('aiProviderLabel').textContent = `powered by ${PROVIDER_NAMES[currentProvider]}`;
   settingsOverlay.classList.remove('open');
 });
 
 aiClearBtn.addEventListener('click', ()=>{
   chatHistory = [];
-  aiMessages.innerHTML = `<div class="ai-welcome"><h4>How can I help?</h4><p>Ask me anything about your files, or get tips on organizing them.</p></div>`;
+  aiMessages.innerHTML = `<div class="ai-welcome"><h4>How can I help?</h4><p>Ask me anything about your files, or get tips on organizing them.<br>Using <strong>${PROVIDER_NAMES[currentProvider]}</strong> — set your API key in settings first.</p></div>`;
 });
 
 function buildFileContext(){
@@ -690,8 +1162,61 @@ function buildFileContext(){
   const totalSize = fmtSize(allFiles.reduce((a,f)=>a+Number(f.size),0));
   const tags = [...new Set(allFiles.filter(f=>f.tag).map(f=>f.tag))];
   const dupes = allFiles.filter(f=>f.isDupe).length;
-  const sampleFiles = allFiles.slice(0,30).map(f=> f.rel_path).join('\n');
-  return `The user has scanned the folder "${rootPath}" containing ${allFiles.length} files (${totalSize} total) across ${Object.keys(cats).length} categories: ${catList}.${tags.length ? ' Smart tags found: '+tags.join(', ')+'.':''}${dupes ? ' '+dupes+' possible duplicates detected.':''} Sample files:\n${sampleFiles}`;
+  const sampleFiles = allFiles.slice(0,50).map(f=> f.rel_path).join('\n');
+  return `The user has scanned the folder "${rootPath}" containing ${allFiles.length} files (${totalSize} total) across ${Object.keys(cats).length} categories: ${catList}.${tags.length ? ' Smart tags found: '+tags.join(', ')+'.':''}${dupes ? ' '+dupes+' possible duplicates detected.':''}\n\nFull file list (all ${allFiles.length} files):\n${allFiles.map(f=> f.rel_path).join('\n')}`;
+}
+
+function searchFiles(query){
+  if(!allFiles.length || !query) return [];
+  const q = query.toLowerCase().trim();
+  const terms = q.split(/\s+/);
+  return allFiles.filter(f=>{
+    return terms.every(term=>{
+      return f.name.toLowerCase().includes(term)
+        || f.rel_path.toLowerCase().includes(term)
+        || f.category.toLowerCase().includes(term)
+        || (f.tag && f.tag.toLowerCase().includes(term))
+        || f.ext.toLowerCase().includes(term);
+    });
+  });
+}
+
+function getFilesByCategory(category){
+  if(!allFiles.length || !category) return [];
+  const cat = category.toLowerCase().trim();
+  return allFiles.filter(f=> f.category.toLowerCase().includes(cat));
+}
+
+function getFilesByTag(tag){
+  if(!allFiles.length || !tag) return [];
+  const t = tag.toLowerCase().trim();
+  return allFiles.filter(f=> f.tag && f.tag.toLowerCase().includes(t));
+}
+
+function getStatsSummary(){
+  if(!allFiles.length) return 'No files scanned yet.';
+  const cats = {};
+  const tags = {};
+  const exts = {};
+  allFiles.forEach(f=>{
+    cats[f.category] = (cats[f.category]||0)+1;
+    if(f.tag) tags[f.tag] = (tags[f.tag]||0)+1;
+    exts[f.ext] = (exts[f.ext]||0)+1;
+  });
+  const totalSize = fmtSize(allFiles.reduce((a,f)=>a+Number(f.size),0));
+  const largest = [...allFiles].sort((a,b)=>Number(b.size)-Number(a.size)).slice(0,5);
+  const recent = [...allFiles].sort((a,b)=>Number(b.lastModified)-Number(a.lastModified)).slice(0,5);
+  const dupes = allFiles.filter(f=>f.isDupe);
+
+  let summary = `Folder: ${rootPath}\n`;
+  summary += `Total: ${allFiles.length} files (${totalSize})\n\n`;
+  summary += `Categories:\n${Object.entries(cats).map(([k,v])=>`  ${k}: ${v}`).join('\n')}\n\n`;
+  if(Object.keys(tags).length) summary += `Tags:\n${Object.entries(tags).map(([k,v])=>`  ${k}: ${v}`).join('\n')}\n\n`;
+  summary += `Top extensions:\n${Object.entries(exts).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([k,v])=>`  .${k}: ${v}`).join('\n')}\n\n`;
+  summary += `Largest files:\n${largest.map(f=>`  ${f.name} (${fmtSize(Number(f.size))})`).join('\n')}\n\n`;
+  summary += `Recently modified:\n${recent.map(f=>`  ${f.name} — ${fmtDate(Number(f.lastModified))}`).join('\n')}\n\n`;
+  if(dupes.length) summary += `Possible duplicates (${dupes.length}):\n${dupes.slice(0,10).map(f=>`  ${f.name} (${f.rel_path})`).join('\n')}`;
+  return summary;
 }
 
 function renderUserMsg(text){
@@ -730,7 +1255,7 @@ async function sendChat(){
   if(sending) return;
   const text = aiInput.value.trim();
   if(!text) return;
-  if(!apiKey){ renderError('No API key set. Click ⚙ to add your Groq API key.'); return; }
+  if(!apiKey){ renderError(`No API key set. Click ⚙ to add your ${PROVIDER_NAMES[currentProvider]} API key.`); return; }
 
   aiInput.value = '';
   aiInput.style.height = 'auto';
@@ -752,7 +1277,17 @@ async function sendChat(){
 
   const systemMsg = {
     role:'system',
-    content: "You are The Filing Desk Companion, a helpful file organization assistant. Be concise and helpful. You can see information about the user's scanned files when available. Help with organization advice, file questions, and general assistance."
+    content:`You are the deskmatee AI companion, a helpful file organization assistant for the deskmatee app. Be concise, friendly, and direct.
+
+You can help the user by:
+- Finding files by name, category, extension, or smart tag
+- Suggesting organization strategies
+- Identifying duplicates or cleanup opportunities
+- Answering questions about the folder structure
+- Searching for specific files when asked
+
+When the user asks to find files, use the file context provided. You can list matching files with their paths, sizes, and categories.
+Always give direct, actionable answers. Skip pleasantries.`
   };
 
   const ctx = buildFileContext();
@@ -761,7 +1296,7 @@ async function sendChat(){
   messages.push(...chatHistory);
 
   try{
-    const resp = await invoke('groq_chat', { messages, apiKey, model: selectedModel });
+    const resp = await invoke('ai_chat', { messages, apiKey, model: selectedModel, provider: currentProvider });
     chatHistory.push({ role:'assistant', content: resp });
     typing.remove();
     renderAssistantMsg(resp);
@@ -784,8 +1319,100 @@ aiInput.addEventListener('input', ()=>{
   aiInput.style.height = Math.min(aiInput.scrollHeight, 120) + 'px';
 });
 
-// Update file context when files are scanned
-const origPickBtnHandler = document.getElementById('pickBtn');
+// ---- Move History & Undo ----
+const undoBtn = document.getElementById('undoBtn');
+const historyBar = document.getElementById('historyBar');
+const historyToggle = document.getElementById('historyToggle');
+const historyList = document.getElementById('historyList');
+let moveHistory = [];
+
+async function loadMoveHistory() {
+  try {
+    moveHistory = await invoke('get_move_history');
+    if (moveHistory.length > 0) {
+      historyBar.style.display = 'block';
+      // Enable undo button for most recent batch
+      const last = moveHistory[moveHistory.length - 1];
+      undoBtn.style.display = 'inline-block';
+      undoBtn.textContent = `↩ Undo (${last.fileCount} files)`;
+      undoBtn.dataset.batchId = last.batchId;
+    } else {
+      historyBar.style.display = 'none';
+      undoBtn.style.display = 'none';
+    }
+    renderHistory();
+  } catch(e) {
+    console.warn('Failed to load move history:', e);
+  }
+}
+
+function renderHistory() {
+  if (!moveHistory.length) {
+    historyList.innerHTML = '<div style="padding:12px;color:var(--ink-soft);font-size:12px;">No organize runs yet.</div>';
+    return;
+  }
+  historyList.innerHTML = [...moveHistory].reverse().map(b => `
+    <div class="history-item">
+      <div>
+        <div class="h-folder">${escapeHtml(b.rootFolder.split(/[\\/]/).pop() || b.rootFolder)}</div>
+        <div class="h-date">${fmtDate(b.timestamp)} · ${b.fileCount} file${b.fileCount !== 1 ? 's' : ''}</div>
+      </div>
+      <button class="ghost undo-history-btn" data-batch-id="${b.batchId}" style="padding:4px 10px;font-size:11px;">↩ Undo</button>
+    </div>
+  `).join('');
+
+  // Wire undo buttons
+  document.querySelectorAll('.undo-history-btn').forEach(btn => {
+    btn.addEventListener('click', () => undoBatch(btn.dataset.batchId));
+  });
+}
+
+historyToggle.addEventListener('click', () => {
+  const isHidden = historyList.style.display === 'none';
+  historyList.style.display = isHidden ? 'block' : 'none';
+  historyToggle.textContent = isHidden ? '▲ hide' : '▼ show';
+});
+
+undoBtn.addEventListener('click', () => {
+  const batchId = undoBtn.dataset.batchId;
+  const batch = moveHistory.find(b => b.batchId === batchId);
+  if (!batch) return;
+  undoBatch(batchId);
+});
+
+async function undoBatch(batchId) {
+  const batch = moveHistory.find(b => b.batchId === batchId);
+  if (!batch) return;
+  const ok = confirm(`Undo organize?\n\nRestore ${batch.fileCount} file(s) to their original locations in:\n${batch.rootFolder}\n\nThis reverses the last organize run in this folder.`);
+  if (!ok) return;
+
+  try {
+    document.getElementById('status').textContent = 'Undoing...';
+    const res = await invoke('undo_batch', { batchId });
+    document.getElementById('status').textContent =
+      `Undo complete — restored ${res.restored} file(s)` + (res.failed ? `, ${res.failed} failed.` : '');
+    if (res.failed && res.errors.length) {
+      console.warn('Undo errors:', res.errors);
+    }
+    // If all succeeded, re-scan the folder
+    if (res.failed === 0 && rootPath) {
+      const files = await invoke('scan_folder', { path: rootPath });
+      const seen = {};
+      allFiles = files.map(f => {
+        const category = categorize(f.ext);
+        const tag = smartTag(f.name);
+        const key = f.name.toLowerCase() + '|' + f.size;
+        seen[key] = (seen[key]||0) + 1;
+        return { ...f, category, tag, dupeKey: key, isDupe: false };
+      });
+      allFiles.forEach(f => f.isDupe = seen[f.dupeKey] > 1);
+      renderAll();
+    }
+    await loadMoveHistory();
+  } catch(e) {
+    document.getElementById('status').textContent = 'Undo error: ' + e;
+  }
+}
 
 // ---- WiFi Sharing ----
 const shareToggle = document.getElementById('shareToggle');
@@ -859,6 +1486,9 @@ shareUrl.addEventListener('click', ()=>{
     });
   }
 });
+
+// Init — load move history on app start
+loadMoveHistory();
 </script>
 </body>
 </html>

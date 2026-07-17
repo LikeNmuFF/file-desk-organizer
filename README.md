@@ -49,8 +49,8 @@ npm run tauri build
 ```
 
 Output lands in `src-tauri/target/release/bundle/`:
-- `The Filing Desk_setup.exe` — NSIS installer (recommended for sharing)
-- `The Filing Desk.exe` — portable executable
+- `deskmatee_setup.exe` — NSIS installer (recommended for sharing)
+- `deskmatee.exe` — portable executable
 
 The whole thing is ~8–12 MB — far smaller than an Electron build.
 

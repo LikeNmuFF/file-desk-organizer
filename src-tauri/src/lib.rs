@@ -10,6 +10,7 @@ use base64::Engine;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use tauri::Manager;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -23,29 +24,6 @@ use walkdir::WalkDir;
 struct ChatMessage {
     role: String,
     content: String,
-}
-
-#[derive(Debug, Serialize)]
-struct GroqRequest {
-    model: String,
-    messages: Vec<ChatMessage>,
-    temperature: f64,
-    max_tokens: u32,
-}
-
-#[derive(Debug, Deserialize)]
-struct GroqChoice {
-    message: GroqMessage,
-}
-
-#[derive(Debug, Deserialize)]
-struct GroqMessage {
-    content: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct GroqResponse {
-    choices: Vec<GroqChoice>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -68,6 +46,23 @@ struct OrganizeResult {
     moved: usize,
     failed: usize,
     errors: Vec<String>,
+    conflicts: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct MoveLogEntry {
+    original_path: String,
+    new_path: String,
+    file_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct MoveBatch {
+    batch_id: String,
+    root_folder: String,
+    timestamp: u64,
+    file_count: usize,
+    entries: Vec<MoveLogEntry>,
 }
 
 // ─── Web Server State ───
@@ -266,7 +261,7 @@ async fn handle_organize(
     let files = scan_folder_internal(&folder_str);
     *state.files_cache.write().await = files;
 
-    Ok(Json(OrganizeResult { moved, failed, errors }))
+    Ok(Json(OrganizeResult { moved, failed, errors, conflicts: Vec::new() }))
 }
 
 async fn handle_preview(
@@ -351,7 +346,7 @@ const REMOTE_UI: &str = r#"<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>The Filing Desk — Remote</title>
+<title>deskmatee — Remote</title>
 <style>
 :root{--paper:#F2EAD8;--paper-deep:#E8DCC0;--manila:#E4BE7F;--manila-dark:#C99A5A;--ink:#20291F;--ink-soft:#4B5245;--rust:#BD4B28;--forest:#33533D;--line:#c9b98d;--card:#FBF6E9;--shadow:3px 4px 0 rgba(32,41,31,0.18);}
 *{box-sizing:border-box;margin:0;}
@@ -401,7 +396,7 @@ h1 em{color:var(--rust);font-style:italic;}
 <body>
 <div class="wrap" id="app" style="display:none;">
   <header>
-    <h1>The Filing <em>Desk</em></h1>
+    <h1>deskmatee</h1>
     <span class="folder-tag" id="folderTag"></span>
   </header>
   <div class="stats" id="stats"></div>
@@ -591,18 +586,34 @@ if (token) { loadFiles(); } else { document.getElementById('loginModal').classLi
 // ─── Tauri Commands ───
 
 #[tauri::command]
-async fn groq_chat(messages: Vec<ChatMessage>, api_key: String, model: String) -> Result<String, String> {
+async fn ai_chat(messages: Vec<ChatMessage>, api_key: String, model: String, provider: String) -> Result<String, String> {
     if api_key.is_empty() {
-        return Err("API key is required. Open settings to enter your Groq API key.".into());
+        let provider_name = match provider.as_str() {
+            "openai" => "OpenAI",
+            "claude" => "Claude",
+            "gemini" => "Gemini",
+            _ => "Groq",
+        };
+        return Err(format!("API key is required. Open settings to enter your {} API key.", provider_name));
     }
 
     let client = reqwest::Client::new();
-    let body = GroqRequest {
-        model,
-        messages,
-        temperature: 0.7,
-        max_tokens: 2048,
-    };
+
+    match provider.as_str() {
+        "openai" => chat_openai(&client, &api_key, &model, &messages).await,
+        "claude" => chat_claude(&client, &api_key, &model, &messages).await,
+        "gemini" => chat_gemini(&client, &api_key, &model, &messages).await,
+        _ => chat_groq(&client, &api_key, &model, &messages).await,
+    }
+}
+
+async fn chat_groq(client: &reqwest::Client, api_key: &str, model: &str, messages: &[ChatMessage]) -> Result<String, String> {
+    let body = serde_json::json!({
+        "model": model,
+        "messages": messages,
+        "temperature": 0.7,
+        "max_tokens": 2048,
+    });
 
     let resp = client
         .post("https://api.groq.com/openai/v1/chat/completions")
@@ -614,31 +625,191 @@ async fn groq_chat(messages: Vec<ChatMessage>, api_key: String, model: String) -
         .map_err(|e| format!("Network error: {}", e))?;
 
     let status = resp.status();
-    let text = resp
-        .text()
-        .await
-        .map_err(|e| format!("Failed to read response: {}", e))?;
+    let text = resp.text().await.map_err(|e| format!("Failed to read response: {}", e))?;
 
     if !status.is_success() {
-        let msg = if let Ok(err) = serde_json::from_str::<serde_json::Value>(&text) {
-            err["error"]["message"]
-                .as_str()
-                .unwrap_or("Unknown API error")
-                .to_string()
-        } else {
-            format!("API error (status {})", status)
-        };
-        return Err(msg);
+        return extract_error(&text, status);
     }
 
-    let groq_resp: GroqResponse =
-        serde_json::from_str(&text).map_err(|e| format!("Parse error: {}", e))?;
-
-    groq_resp
-        .choices
-        .first()
-        .map(|c| c.message.content.clone())
+    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("Parse error: {}", e))?;
+    v["choices"][0]["message"]["content"]
+        .as_str()
+        .map(|s| s.to_string())
         .ok_or_else(|| "No response from model".into())
+}
+
+async fn chat_openai(client: &reqwest::Client, api_key: &str, model: &str, messages: &[ChatMessage]) -> Result<String, String> {
+    let body = serde_json::json!({
+        "model": model,
+        "messages": messages,
+        "temperature": 0.7,
+        "max_tokens": 2048,
+    });
+
+    let resp = client
+        .post("https://api.openai.com/v1/chat/completions")
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {}", e))?;
+
+    let status = resp.status();
+    let text = resp.text().await.map_err(|e| format!("Failed to read response: {}", e))?;
+
+    if !status.is_success() {
+        return extract_error(&text, status);
+    }
+
+    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("Parse error: {}", e))?;
+    v["choices"][0]["message"]["content"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "No response from model".into())
+}
+
+async fn chat_claude(client: &reqwest::Client, api_key: &str, model: &str, messages: &[ChatMessage]) -> Result<String, String> {
+    // Extract system message (must be separate in Claude API)
+    let mut system_text = String::new();
+    let mut claude_messages: Vec<serde_json::Value> = Vec::new();
+
+    for msg in messages {
+        if msg.role == "system" {
+            if !system_text.is_empty() {
+                system_text.push('\n');
+            }
+            system_text.push_str(&msg.content);
+        } else {
+            claude_messages.push(serde_json::json!({
+                "role": msg.role,
+                "content": msg.content,
+            }));
+        }
+    }
+
+    // Ensure messages alternate user/assistant starting with user
+    // Claude requires at least one message, and first must be user
+    if claude_messages.is_empty() {
+        claude_messages.push(serde_json::json!({
+            "role": "user",
+            "content": "Hello",
+        }));
+    }
+
+    let mut body = serde_json::json!({
+        "model": model,
+        "messages": claude_messages,
+        "max_tokens": 2048,
+    });
+
+    if !system_text.is_empty() {
+        body["system"] = serde_json::json!(system_text);
+    }
+
+    let resp = client
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {}", e))?;
+
+    let status = resp.status();
+    let text = resp.text().await.map_err(|e| format!("Failed to read response: {}", e))?;
+
+    if !status.is_success() {
+        return extract_error(&text, status);
+    }
+
+    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("Parse error: {}", e))?;
+    v["content"][0]["text"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "No response from model".into())
+}
+
+async fn chat_gemini(client: &reqwest::Client, api_key: &str, model: &str, messages: &[ChatMessage]) -> Result<String, String> {
+    let mut contents: Vec<serde_json::Value> = Vec::new();
+    let mut system_instruction = serde_json::json!({});
+
+    for msg in messages {
+        if msg.role == "system" {
+            system_instruction = serde_json::json!({
+                "parts": [{ "text": msg.content }]
+            });
+        } else {
+            // Gemini uses "model" instead of "assistant"
+            let role = if msg.role == "assistant" { "model" } else { &msg.role };
+            contents.push(serde_json::json!({
+                "role": role,
+                "parts": [{ "text": msg.content }],
+            }));
+        }
+    }
+
+    // Ensure at least one content
+    if contents.is_empty() {
+        contents.push(serde_json::json!({
+            "role": "user",
+            "parts": [{ "text": "Hello" }],
+        }));
+    }
+
+    let mut body = serde_json::json!({
+        "contents": contents,
+        "generationConfig": {
+            "maxOutputTokens": 2048,
+            "temperature": 0.7,
+        },
+    });
+
+    if !system_instruction.get("parts").is_none() {
+        body["systemInstruction"] = system_instruction;
+    }
+
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+        model
+    );
+
+    let resp = client
+        .post(&url)
+        .header("x-goog-api-key", api_key)
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {}", e))?;
+
+    let status = resp.status();
+    let text = resp.text().await.map_err(|e| format!("Failed to read response: {}", e))?;
+
+    if !status.is_success() {
+        return extract_error(&text, status);
+    }
+
+    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("Parse error: {}", e))?;
+    v["candidates"][0]["content"]["parts"][0]["text"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "No response from model".into())
+}
+
+fn extract_error(text: &str, status: reqwest::StatusCode) -> Result<String, String> {
+    if let Ok(err) = serde_json::from_str::<serde_json::Value>(text) {
+        // Try common error formats
+        let msg = err["error"]["message"]
+            .as_str()
+            .or_else(|| err["error"]["details"][0]["message"].as_str())
+            .or_else(|| err["message"].as_str())
+            .unwrap_or("Unknown API error");
+        Err(format!("{} (status {})", msg, status))
+    } else {
+        Err(format!("API error (status {})", status))
+    }
 }
 
 fn scan_folder_internal(path: &str) -> Vec<FileEntry> {
@@ -696,8 +867,38 @@ fn scan_folder(path: String) -> Result<Vec<FileEntry>, String> {
     Ok(scan_folder_internal(&path))
 }
 
+fn move_history_path(app_handle: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let mut dir = app_handle.path().app_data_dir().map_err(|e| format!("Data dir error: {}", e))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create data dir: {}", e))?;
+    dir.push("move_history.json");
+    Ok(dir)
+}
+
+fn read_move_history(path: &std::path::Path) -> Vec<MoveBatch> {
+    if !path.exists() {
+        return Vec::new();
+    }
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn write_move_history(path: &std::path::Path, batches: &[MoveBatch]) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(batches).map_err(|e| e.to_string())?;
+    std::fs::write(path, json).map_err(|e| e.to_string())
+}
+
+fn generate_batch_id() -> String {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    format!("batch_{}", ts)
+}
+
 #[tauri::command]
-fn organize_files(root: String, moves: Vec<FileMove>, dry_run: bool) -> Result<OrganizeResult, String> {
+fn organize_files(app_handle: tauri::AppHandle, root: String, moves: Vec<FileMove>, dry_run: bool, conflict_strategy: String) -> Result<OrganizeResult, String> {
     let root = PathBuf::from(&root);
     if !root.is_dir() {
         return Err(format!("Not a directory: {}", root.display()));
@@ -706,6 +907,8 @@ fn organize_files(root: String, moves: Vec<FileMove>, dry_run: bool) -> Result<O
     let mut moved = 0usize;
     let mut failed = 0usize;
     let mut errors: Vec<String> = Vec::new();
+    let mut conflicts: Vec<String> = Vec::new();
+    let mut log_entries: Vec<MoveLogEntry> = Vec::new();
 
     for m in moves {
         let src = root.join(&m.src);
@@ -715,7 +918,20 @@ fn organize_files(root: String, moves: Vec<FileMove>, dry_run: bool) -> Result<O
             errors.push(format!("Missing source: {}", m.src));
             continue;
         }
-        if let Some(parent) = dest.parent() {
+        if dest.exists() && !dry_run && conflict_strategy == "skip" {
+            failed += 1;
+            errors.push(format!("Conflict skipped: {} already exists", m.dest));
+            continue;
+        }
+        let final_dest = if dest.exists() && !dry_run && conflict_strategy == "rename" {
+            let resolved = resolve_conflict(&dest);
+            let name = resolved.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+            conflicts.push(format!("{} -> {}", m.dest, name));
+            resolved
+        } else {
+            dest.clone()
+        };
+        if let Some(parent) = final_dest.parent() {
             if !dry_run {
                 if let Err(e) = fs::create_dir_all(parent) {
                     failed += 1;
@@ -728,8 +944,15 @@ fn organize_files(root: String, moves: Vec<FileMove>, dry_run: bool) -> Result<O
             moved += 1;
             continue;
         }
-        match fs::rename(&src, &dest) {
-            Ok(_) => moved += 1,
+        match fs::rename(&src, &final_dest) {
+            Ok(_) => {
+                moved += 1;
+                log_entries.push(MoveLogEntry {
+                    original_path: m.src.clone(),
+                    new_path: m.dest.clone(),
+                    file_name: src.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string(),
+                });
+            }
             Err(e) => {
                 failed += 1;
                 errors.push(format!("Failed {} -> {}: {}", m.src, m.dest, e));
@@ -737,7 +960,107 @@ fn organize_files(root: String, moves: Vec<FileMove>, dry_run: bool) -> Result<O
         }
     }
 
-    Ok(OrganizeResult { moved, failed, errors })
+    // Write move history if any files were moved
+    if !dry_run && !log_entries.is_empty() {
+        if let Ok(path) = move_history_path(&app_handle) {
+            let mut history = read_move_history(&path);
+            let batch = MoveBatch {
+                batch_id: generate_batch_id(),
+                root_folder: root.to_string_lossy().to_string(),
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64,
+                file_count: log_entries.len(),
+                entries: log_entries,
+            };
+            history.push(batch);
+            // Keep max 50 batches
+            if history.len() > 50 {
+                history.drain(..history.len() - 50);
+            }
+            let _ = write_move_history(&path, &history);
+        }
+    }
+
+    Ok(OrganizeResult { moved, failed, errors, conflicts })
+}
+
+fn resolve_conflict(dest: &std::path::Path) -> std::path::PathBuf {
+    let parent = dest.parent().unwrap();
+    let stem = dest.file_stem().unwrap().to_string_lossy().to_string();
+    let ext = dest.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+    let mut counter = 1;
+    loop {
+        let candidate = parent.join(format!("{} ({}){}", stem, counter, ext));
+        if !candidate.exists() {
+            return candidate;
+        }
+        counter += 1;
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct UndoResult {
+    restored: usize,
+    failed: usize,
+    errors: Vec<String>,
+}
+
+#[tauri::command]
+fn undo_batch(app_handle: tauri::AppHandle, batch_id: String) -> Result<UndoResult, String> {
+    let path = move_history_path(&app_handle)?;
+    let mut history = read_move_history(&path);
+    let batch_idx = history.iter().position(|b| b.batch_id == batch_id)
+        .ok_or_else(|| format!("Batch not found: {}", batch_id))?;
+    let batch = &history[batch_idx];
+
+    let root = PathBuf::from(&batch.root_folder);
+    let mut restored = 0usize;
+    let mut failed = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+
+    // Reverse in reverse order to restore original state
+    for entry in batch.entries.iter().rev() {
+        let original = root.join(&entry.original_path);
+        let current = root.join(&entry.new_path);
+
+        if !current.exists() {
+            failed += 1;
+            errors.push(format!("Cannot undo {}: file no longer at expected location", entry.new_path));
+            continue;
+        }
+
+        if let Some(parent) = original.parent() {
+            if let Err(e) = fs::create_dir_all(parent) {
+                failed += 1;
+                errors.push(format!("Cannot create parent dir for {}: {}", entry.original_path, e));
+                continue;
+            }
+        }
+
+        match fs::rename(&current, &original) {
+            Ok(_) => restored += 1,
+            Err(e) => {
+                failed += 1;
+                errors.push(format!("Failed to restore {}: {}", entry.original_path, e));
+            }
+        }
+    }
+
+    // Remove batch from history
+    if failed == 0 {
+        history.remove(batch_idx);
+        let _ = write_move_history(&path, &history);
+    }
+
+    Ok(UndoResult { restored, failed, errors })
+}
+
+#[tauri::command]
+fn get_move_history(app_handle: tauri::AppHandle) -> Result<Vec<MoveBatch>, String> {
+    let path = move_history_path(&app_handle)?;
+    Ok(read_move_history(&path))
 }
 
 #[tauri::command]
@@ -823,6 +1146,117 @@ async fn handle_index() -> Html<&'static str> {
     Html(REMOTE_UI)
 }
 
+// ─── File Preview + System Open ───
+
+#[derive(Serialize)]
+struct PreviewResult {
+    mime_type: String,
+    size: u64,
+    data: String,
+    is_text: bool,
+    extension: String,
+    name: String,
+}
+
+fn mime_for_extension(ext: &str) -> &str {
+    match ext {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "svg" => "image/svg+xml",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "ico" => "image/x-icon",
+        "pdf" => "application/pdf",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "mov" => "video/quicktime",
+        "avi" => "video/x-msvideo",
+        "mkv" => "video/x-matroska",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "flac" => "audio/flac",
+        "aac" => "audio/aac",
+        "ogg" => "audio/ogg",
+        "m4a" => "audio/mp4",
+        "txt" | "md" | "json" | "js" | "ts" | "html" | "css" | "xml" |
+        "csv" | "rs" | "py" | "toml" | "yaml" | "yml" | "sh" | "bash" |
+        "java" | "cpp" | "c" | "h" | "hpp" | "php" | "rb" | "go" |
+        "sql" | "ini" | "cfg" | "conf" | "log" | "env" | "gitignore" |
+        "dockerfile" | "makefile" => "text/plain",
+        _ => "application/octet-stream",
+    }
+}
+
+fn is_text_extension(ext: &str) -> bool {
+    matches!(ext, "txt" | "md" | "json" | "js" | "ts" | "html" | "css" | "xml" |
+        "csv" | "rs" | "py" | "toml" | "yaml" | "yml" | "sh" | "bash" |
+        "java" | "cpp" | "c" | "h" | "hpp" | "php" | "rb" | "go" |
+        "sql" | "ini" | "cfg" | "conf" | "log" | "env" | "gitignore" |
+        "dockerfile" | "makefile" | "jsx" | "tsx" | "vue" | "svelte")
+}
+
+#[tauri::command]
+fn read_file_preview(root: String, rel_path: String) -> Result<PreviewResult, String> {
+    let full_path = PathBuf::from(&root).join(&rel_path);
+
+    // Security: prevent directory traversal
+    let canonical = full_path.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+    let root_canonical = PathBuf::from(&root).canonicalize().map_err(|e| format!("Invalid root: {}", e))?;
+    if !canonical.starts_with(&root_canonical) {
+        return Err("Access denied: path outside root folder".into());
+    }
+
+    if !full_path.exists() || !full_path.is_file() {
+        return Err("File not found".into());
+    }
+
+    let ext = full_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    let name = full_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_string();
+
+    let meta = fs::metadata(&full_path).map_err(|e| format!("Metadata error: {}", e))?;
+    let mime = mime_for_extension(&ext).to_string();
+    let is_text = is_text_extension(&ext);
+    let bytes = fs::read(&full_path).map_err(|e| format!("Read error: {}", e))?;
+
+    // Cap at 10MB for preview
+    let capped = bytes.len() > 10 * 1024 * 1024;
+    let data = if capped {
+        base64::engine::general_purpose::STANDARD.encode(&bytes[..10 * 1024 * 1024])
+    } else {
+        base64::engine::general_purpose::STANDARD.encode(&bytes)
+    };
+
+    Ok(PreviewResult {
+        mime_type: mime.to_string(),
+        size: meta.len(),
+        data,
+        is_text,
+        extension: ext,
+        name,
+    })
+}
+
+#[tauri::command]
+fn open_with_system(path: String) -> Result<(), String> {
+    use std::path::PathBuf;
+    // Security: basic check
+    if path.contains("..") {
+        return Err("Invalid path".into());
+    }
+    let full_path = PathBuf::from(&path);
+    open::that(&full_path).map_err(|e| format!("Failed to open file: {}", e))
+}
+
 // ─── Helpers ───
 
 fn get_local_ip() -> String {
@@ -844,13 +1278,18 @@ fn get_local_ip() -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             scan_folder,
             organize_files,
-            groq_chat,
+            undo_batch,
+            get_move_history,
+            ai_chat,
             start_sharing,
             stop_sharing,
             get_sharing_info,
+            read_file_preview,
+            open_with_system,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

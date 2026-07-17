@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>The Filing Desk — Your Files, Finally Organized</title>
+<title>deskmatee — Your Files, Finally Organized</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="description" content="A desktop file organizer that sorts, tags, and moves your files into place. Local-first. Private. Built with Tauri.">
 <link rel="icon" type="image/png" href="logo.png">
@@ -216,6 +216,19 @@
   .btn-primary:active {
     transform: translate(0, 0);
     box-shadow: 1px 1px 0 rgba(32,41,31,0.18);
+  }
+  .btn-hero {
+    font-size: 15px;
+    padding: 16px 32px;
+  }
+  .version-badge {
+    font-size: 10px;
+    background: var(--rust);
+    color: var(--paper);
+    padding: 2px 7px;
+    border-radius: 3px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
   }
   .btn-secondary {
     display: inline-flex; align-items: center; gap: 10px;
@@ -773,11 +786,68 @@
   @media (max-width: 640px) {
     .hero { padding: 100px 20px 40px; }
     .feature-grid { grid-template-columns: 1fr; }
-    .nav-links a:not(.nav-cta) { display: none; }
     .features, .how, .download { padding-left: 20px; padding-right: 20px; }
     .privacy { margin: 0 20px; padding: 32px 24px; }
     footer { padding: 24px 20px; }
     .download-meta { flex-direction: column; gap: 12px; }
+    .hero-actions { flex-direction: column; }
+    .hero-actions .btn-primary, .hero-actions .btn-secondary { width: 100%; justify-content: center; }
+    .desk-sticky { display: none; }
+  }
+
+  /* ===== HAMBURGER MENU ===== */
+  .menu-toggle {
+    display: none;
+    background: none; border: none; cursor: pointer;
+    width: 40px; height: 40px; padding: 0;
+    flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+    z-index: 300;
+  }
+  .menu-toggle span {
+    display: block; width: 20px; height: 2px; background: var(--ink);
+    transition: all 0.3s ease;
+  }
+  .menu-toggle.open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+  .menu-toggle.open span:nth-child(2) { opacity: 0; }
+  .menu-toggle.open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+  .nav-overlay {
+    display: none; position: fixed; inset: 0; z-index: 150;
+    background: rgba(32,41,31,0.4); backdrop-filter: blur(4px);
+  }
+  .nav-overlay.open { display: block; }
+
+  @media (max-width: 640px) {
+    .menu-toggle { display: flex; }
+    nav { padding: 14px 20px; }
+    .nav-links {
+      position: fixed; right: 0; top: 0; bottom: 0; width: 280px; z-index: 200;
+      background: var(--paper-cream); border-left: 2px solid var(--ink);
+      flex-direction: column; align-items: flex-start; justify-content: flex-start;
+      padding: 80px 32px 32px; gap: 20px;
+      transform: translateX(100%); transition: transform 0.3s ease;
+      box-shadow: -4px 0 24px rgba(32,41,31,0.15);
+    }
+    .nav-links.open { transform: translateX(0); }
+    .nav-links a {
+      font-size: 14px; padding: 8px 0; width: 100%;
+      border-bottom: 1px solid rgba(32,41,31,0.08);
+    }
+    .nav-cta {
+      margin-top: 16px; width: 100%; justify-content: center;
+    }
+  }
+
+  /* ===== ACCESSIBILITY ===== */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+  a:focus-visible, button:focus-visible {
+    outline: 2px solid var(--rust); outline-offset: 2px;
   }
 </style>
 </head>
@@ -785,17 +855,21 @@
 
 <!-- NAV -->
 <nav id="mainNav">
-  <a href="#" class="nav-brand"><img src="logo.png" alt="The Filing Desk logo">The Filing <em>Desk</em></a>
-  <div class="nav-links">
+  <a href="#" class="nav-brand"><img src="logo.png" alt="deskmatee logo">desk<em>matee</em></a>
+  <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">
+    <span></span><span></span><span></span>
+  </button>
+  <div class="nav-links" id="navLinks">
     <a href="#features">Features</a>
     <a href="#how">How It Works</a>
     <a href="#download">Download</a>
-    <a href="https://github.com/LikeNmuFF/file-desk-organizer" target="_blank" rel="noopener" class="nav-cta">
+    <a href="https://github.com/LikeNmuFF/deskmatee" target="_blank" rel="noopener" class="nav-cta">
       <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
       GitHub
     </a>
   </div>
 </nav>
+<div class="nav-overlay" id="navOverlay"></div>
 
 <!-- HERO -->
 <section class="hero">
@@ -810,14 +884,15 @@
       <span class="line">organized.</span>
     </h1>
     <p class="hero-desc">
-      Point The Filing Desk at any messy folder. It scans, categorizes, and moves everything into place — privately, on your machine. No uploads. No cloud. Just order.
+      Point deskmatee at any messy folder. It scans, categorizes, and moves everything into place — privately, on your machine. No uploads. No cloud. Just order.
     </p>
     <div class="hero-actions">
-      <a href="https://github.com/LikeNmuFF/file-desk-organizer/releases/latest" target="_blank" rel="noopener" class="btn-primary">
+      <a href="https://github.com/LikeNmuFF/deskmatee/releases/latest" target="_blank" rel="noopener" class="btn-primary btn-hero">
         Download Free
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+        <span class="version-badge">v1.0.0</span>
       </a>
-      <a href="https://github.com/LikeNmuFF/file-desk-organizer" target="_blank" rel="noopener" class="btn-secondary">
+      <a href="https://github.com/LikeNmuFF/deskmatee" target="_blank" rel="noopener" class="btn-secondary">
         <svg viewBox="0 0 16 16" width="16" height="16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
         View on GitHub
       </a>
@@ -829,7 +904,7 @@
       <div class="desk-titlebar">
         <div class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
         <img src="logo.png" alt="logo">
-        <span>The Filing Desk</span>
+        <span>deskmatee</span>
       </div>
       <div class="desk-content">
         <div class="desk-row">
@@ -959,7 +1034,7 @@
 <div class="privacy reveal">
   <div class="privacy-content">
     <h2>Your files. <em>Your machine.</em></h2>
-    <p>The Filing Desk is built with Tauri — a fraction of Electron's size, with a Rust backend that's fast and secure. Core features need zero internet. The AI companion uses your own API key. Nothing phones home.</p>
+    <p>deskmatee is built with Tauri — a fraction of Electron's size, with a Rust backend that's fast and secure. Core features need zero internet. The AI companion uses your own API key. Nothing phones home.</p>
   </div>
   <div class="privacy-visual">
     <div class="shield">🔒</div>
@@ -975,11 +1050,12 @@
   <p class="download-sub reveal">Free and open source. Built with Tauri + Rust. Available for Windows, Linux, and macOS.</p>
 
   <div class="download-actions reveal">
-    <a href="https://github.com/LikeNmuFF/file-desk-organizer/releases/latest" target="_blank" rel="noopener" class="btn-primary">
+    <a href="https://github.com/LikeNmuFF/deskmatee/releases/latest" target="_blank" rel="noopener" class="btn-primary">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
       Download Latest
+      <span class="version-badge">v1.0.0</span>
     </a>
-    <a href="https://github.com/LikeNmuFF/file-desk-organizer" target="_blank" rel="noopener" class="github-btn">
+    <a href="https://github.com/LikeNmuFF/deskmatee" target="_blank" rel="noopener" class="github-btn">
       <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
       Star on GitHub
       <span class="star-icon">
@@ -999,14 +1075,14 @@
 
 <!-- FOOTER -->
 <footer>
-  <div class="footer-brand"><img src="logo.png" alt="The Filing Desk logo">The Filing <em>Desk</em></div>
+  <div class="footer-brand"><img src="logo.png" alt="deskmatee logo">desk<em>matee</em></div>
   <div class="footer-links">
-    <a href="https://github.com/LikeNmuFF/file-desk-organizer" target="_blank" rel="noopener">GitHub</a>
-    <a href="https://github.com/LikeNmuFF/file-desk-organizer/issues" target="_blank" rel="noopener">Issues</a>
+    <a href="https://github.com/LikeNmuFF/deskmatee" target="_blank" rel="noopener">GitHub</a>
+    <a href="https://github.com/LikeNmuFF/deskmatee/issues" target="_blank" rel="noopener">Issues</a>
     <a href="#features">Features</a>
     <a href="#download">Download</a>
   </div>
-  <span class="footer-copy">&copy; 2025 The Filing Desk</span>
+  <span class="footer-copy">&copy; 2025 deskmatee</span>
 </footer>
 
 <script>
@@ -1015,6 +1091,38 @@ const nav = document.getElementById('mainNav');
 window.addEventListener('scroll', () => {
   nav.classList.toggle('scrolled', window.scrollY > 40);
 }, { passive: true });
+
+// Mobile hamburger menu
+const menuToggle = document.getElementById('menuToggle');
+const navLinks = document.getElementById('navLinks');
+const navOverlay = document.getElementById('navOverlay');
+
+function closeMenu() {
+  menuToggle.classList.remove('open');
+  navLinks.classList.remove('open');
+  navOverlay.classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+menuToggle.addEventListener('click', () => {
+  const isOpen = navLinks.classList.contains('open');
+  if (isOpen) {
+    closeMenu();
+  } else {
+    menuToggle.classList.add('open');
+    navLinks.classList.add('open');
+    navOverlay.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+});
+
+navOverlay.addEventListener('click', closeMenu);
+
+navLinks.querySelectorAll('a').forEach(link => {
+  link.addEventListener('click', () => {
+    if (window.innerWidth <= 640) closeMenu();
+  });
+});
 
 // Intersection Observer for reveal animations
 const observer = new IntersectionObserver((entries) => {
