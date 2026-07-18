@@ -1,5 +1,7 @@
 # Deskmatee
 
+![Deskmatee UI](mockup.png)
+
 Meet Deskmate: your messy files, finally sorted.
 
 Deskmatee is a desktop file organizer built with Tauri v2. It helps you scan a folder, classify files by type and content, tag them intelligently, and move them into a cleaner, more useful folder structure — all locally on your machine.

@@ -389,18 +389,18 @@ function renderFileList(){
     return;
   }
   el.innerHTML = list.slice(0,300).map((f,i)=>`
-    <div class="file-card ${f.isDupe?'dupe':''}" onclick="handleFileClick(${i})" title="Click to preview or open">
+    <div class="file-card ${f.isDupe?'dupe':''}" data-rel="${escapeHtml(f.relPath)}" onclick="handleFileClickByPath(this.dataset.rel)" title="Click to preview or open">
       <div class="file-icon cat-${fileCat(f.category)}">
         <svg><use href="#icon-${fileCat(f.category)}"/></svg>
       </div>
       <div class="file-body">
         <div class="fname">${escapeHtml(f.name)}</div>
         <div class="file-meta">
-          <span class="fpath">${escapeHtml(f.rel_path)}${f.isDupe? ' · possible duplicate':''}</span>
+          <span class="fpath">${escapeHtml(f.relPath)}${f.isDupe? ' · possible duplicate':''}</span>
         </div>
         <div class="file-actions">
-          <button class="chip-btn preview-btn" onclick="event.stopPropagation();previewFileAt(${i})">Preview</button>
-          <button class="chip-btn open-btn" onclick="event.stopPropagation();openFileAt(${i})">Open</button>
+          <button class="chip-btn preview-btn" onclick="event.stopPropagation();previewFileByPath('${f.relPath.replace(/'/g, "\\'")}')">Preview</button>
+          <button class="chip-btn open-btn" onclick="event.stopPropagation();openFileByPath('${f.relPath.replace(/'/g, "\\'")}')">Open</button>
           <span class="ftag">${f.tag || f.category}</span>
           <span class="fdate">${fmtDate(f.lastModified)}</span>
           <span class="fsize">${fmtSize(Number(f.size))}</span>
@@ -416,10 +416,10 @@ function fileCat(category){
     case 'Spreadsheets': return 'sheet';
     case 'Presentations': return 'slides';
     case 'Images': return 'image';
-    case 'Video': return 'video';
+    case 'Videos': return 'video';
     case 'Audio': return 'audio';
     case 'Archives': return 'archive';
-    case 'Code': return 'code';
+    case 'Code & Data': return 'code';
     case 'Installers': return 'installer';
     case 'PDFs': return 'pdf';
     default: return 'other';
@@ -430,22 +430,43 @@ function fileIcon(category){
   return `<svg class="file-icon-svg"><use href="#icon-${fileCat(category)}"/></svg>`;
 }
 
-function previewFileAt(idx){
-  const f = getFilteredFiles()[idx];
-  if(f) handleFileClick(idx);
+function findFileByRelPath(relPath) {
+  return allFiles.find(f => f.relPath === relPath) || null;
 }
 
-function openFileAt(idx){
-  const f = getFilteredFiles()[idx];
-  if(!f) return;
+function handleFileClickByPath(relPath) {
+  const f = findFileByRelPath(relPath);
+  if (!f) return;
+
   const ext = f.ext.toLowerCase();
-  const PREVIEWABLE = [].concat(PREVIEW_IN_APP, PREVIEW_TEXT, PREVIEW_VIDEO, PREVIEW_AUDIO, PREVIEW_SYSTEM);
-  if(PREVIEWABLE.includes(ext)){
-    handleFileClick(idx);
+
+  if (PREVIEW_IN_APP.includes(ext)) {
+    previewInApp(f, 'image');
+  } else if (PREVIEW_TEXT.includes(ext)) {
+    previewInApp(f, 'text');
+  } else if (PREVIEW_VIDEO.includes(ext)) {
+    previewInApp(f, 'video');
+  } else if (PREVIEW_AUDIO.includes(ext)) {
+    previewInApp(f, 'audio');
+  } else if (PREVIEW_PDF.includes(ext)) {
+    previewInApp(f, 'pdf');
+  } else if (PREVIEW_SYSTEM.includes(ext)) {
+    openWithSystem(f);
   } else {
-    const full = rootPath.replace(/[\\/]$/,'') + '/' + f.rel_path;
-    openPath(full).catch(e => alert('Failed to open file: ' + e));
+    openWithSystem(f);
   }
+}
+
+function previewFileByPath(relPath) {
+  const f = findFileByRelPath(relPath);
+  if (!f) return;
+  handleFileClickByPath(relPath);
+}
+
+function openFileByPath(relPath) {
+  const f = findFileByRelPath(relPath);
+  if (!f) return;
+  openWithSystem(f);
 }
 
 function renderSkeleton(count){
@@ -469,7 +490,8 @@ const PREVIEW_IN_APP = ['jpg','jpeg','png','gif','svg','webp','bmp','ico'];
 const PREVIEW_TEXT = ['txt','md','json','js','ts','html','css','xml','csv','rs','py','toml','yaml','yml','sh','bash','java','cpp','c','h','hpp','php','rb','go','sql','ini','cfg','conf','log','env','gitignore','dockerfile','makefile','jsx','tsx','vue','svelte'];
 const PREVIEW_VIDEO = ['mp4','webm','mov','avi','mkv'];
 const PREVIEW_AUDIO = ['mp3','wav','flac','aac','ogg','m4a'];
-const PREVIEW_SYSTEM = ['pdf','doc','docx','xls','xlsx','ppt','pptx','odt','ods','odp','rtf'];
+const PREVIEW_PDF = ['pdf'];
+const PREVIEW_SYSTEM = ['doc','docx','xls','xlsx','ppt','pptx','odt','ods','odp','rtf'];
 
 function handleFileClick(idx) {
   const filtered = getFilteredFiles();
@@ -486,6 +508,8 @@ function handleFileClick(idx) {
     previewInApp(f, 'video');
   } else if (PREVIEW_AUDIO.includes(ext)) {
     previewInApp(f, 'audio');
+  } else if (PREVIEW_PDF.includes(ext)) {
+    previewInApp(f, 'pdf');
   } else if (PREVIEW_SYSTEM.includes(ext)) {
     openWithSystem(f);
   } else {
@@ -511,7 +535,7 @@ async function previewInApp(f, type) {
   overlay.classList.add('open');
 
   try {
-    const result = await invoke('read_file_preview', { root: rootPath, relPath: f.rel_path });
+    const result = await invoke('read_file_preview', { root: rootPath, rel_path: f.relPath });
 
     let html = '';
     if (type === 'image') {
@@ -520,8 +544,17 @@ async function previewInApp(f, type) {
       html = `<video controls autoplay src="data:${result.mimeType};base64,${result.data}"></video>`;
     } else if (type === 'audio') {
       html = `<audio controls autoplay src="data:${result.mimeType};base64,${result.data}"></audio>`;
+    } else if (type === 'pdf') {
+      html = `<iframe class="pdf-frame" src="data:${result.mimeType};base64,${result.data}" title="${escapeHtml(result.name)}"></iframe>`;
     } else if (type === 'text') {
-      const lines = result.data.split('\n');
+      // Decode base64 UTF-8 string properly
+      const binaryString = atob(result.data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const decodedText = new TextDecoder('utf-8').decode(bytes);
+      const lines = decodedText.split('\n');
       const numbered = lines.map((line, i) => {
         const num = `<span class="line-numbers">${i + 1}</span>`;
         return num + escapeHtml(line);
@@ -532,7 +565,7 @@ async function previewInApp(f, type) {
     content.innerHTML = html;
     meta.textContent = `${result.name} — ${fmtSize(result.size)} — ${result.extension.toUpperCase()}`;
     actions.innerHTML = `
-      <button onclick="openWithSystem(getFilteredFiles().find(f=>f.rel_path==='${f.rel_path}'))">Open with system app</button>
+      <button onclick="openWithSystem('${f.relPath.replace(/'/g, "\\'")}')">Open with system app</button>
       <button onclick="closePreview()">Close</button>
     `;
   } catch(e) {
@@ -544,8 +577,11 @@ async function previewInApp(f, type) {
 
 async function openWithSystem(f) {
   try {
+    if (!f) return;
+    const relPath = typeof f === 'string' ? f : f.relPath;
+    if (!relPath) return;
     const sep = navigator.platform.includes('Win') ? '\\' : '/';
-    const fullPath = rootPath + sep + f.rel_path.replace(/\//g, sep);
+    const fullPath = rootPath + sep + relPath.replace(/\//g, sep);
     await invoke('open_with_system', { path: fullPath });
   } catch(e) {
     alert('Failed to open file: ' + e);
@@ -565,12 +601,12 @@ document.getElementById('previewOverlay').addEventListener('click', (e) => {
 });
 
 // Make functions available globally for onclick handlers
-window.handleFileClick = handleFileClick;
+window.handleFileClickByPath = handleFileClickByPath;
 window.openWithSystem = openWithSystem;
 window.closePreview = closePreview;
 window.getFilteredFiles = getFilteredFiles;
-window.previewFileAt = previewFileAt;
-window.openFileAt = openFileAt;
+window.previewFileByPath = previewFileByPath;
+window.openFileByPath = openFileByPath;
 
 document.getElementById('searchInput').addEventListener('input', renderFileList);
 document.getElementById('clearSearch').addEventListener('click', ()=>{
@@ -594,7 +630,7 @@ function buildPlan() {
   return allFiles.map(f => {
     const sub = (f.tag ? (f.category + '/' + f.tag) : f.category);
     return {
-      src: f.rel_path,
+      src: f.relPath,
       dest: sub + '/' + f.name,
       category: f.category,
       tag: f.tag,
@@ -813,7 +849,7 @@ function buildFileContext(){
 
 function buildFullFileContext(){
   const summary = buildFileContext();
-  return summary + `\n\nFull file list (all ${allFiles.length} files):\n${allFiles.map(f=> f.rel_path).join('\n')}`;
+  return summary + `\n\nFull file list (all ${allFiles.length} files):\n${allFiles.map(f=> f.relPath).join('\n')}`;
 }
 
 function estimateTokens(text){
@@ -865,7 +901,7 @@ function searchFiles(query){
   return allFiles.filter(f=>{
     return terms.every(term=>{
       return f.name.toLowerCase().includes(term)
-        || f.rel_path.toLowerCase().includes(term)
+        || f.relPath.toLowerCase().includes(term)
         || f.category.toLowerCase().includes(term)
         || (f.tag && f.tag.toLowerCase().includes(term))
         || f.ext.toLowerCase().includes(term);
@@ -907,7 +943,7 @@ function getStatsSummary(){
   summary += `Top extensions:\n${Object.entries(exts).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([k,v])=>`  .${k}: ${v}`).join('\n')}\n\n`;
   summary += `Largest files:\n${largest.map(f=>`  ${f.name} (${fmtSize(Number(f.size))})`).join('\n')}\n\n`;
   summary += `Recently modified:\n${recent.map(f=>`  ${f.name} — ${fmtDate(Number(f.lastModified))}`).join('\n')}\n\n`;
-  if(dupes.length) summary += `Possible duplicates (${dupes.length}):\n${dupes.slice(0,10).map(f=>`  ${f.name} (${f.rel_path})`).join('\n')}`;
+  if(dupes.length) summary += `Possible duplicates (${dupes.length}):\n${dupes.slice(0,10).map(f=>`  ${f.name} (${f.relPath})`).join('\n')}`;
   return summary;
 }
 

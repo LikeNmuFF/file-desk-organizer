@@ -1225,6 +1225,8 @@ fn is_text_extension(ext: &str) -> bool {
         "dockerfile" | "makefile" | "jsx" | "tsx" | "vue" | "svelte")
 }
 
+
+
 #[tauri::command]
 fn read_file_preview(root: String, rel_path: String) -> Result<PreviewResult, String> {
     let full_path = PathBuf::from(&root).join(&rel_path);
@@ -1278,12 +1280,68 @@ fn read_file_preview(root: String, rel_path: String) -> Result<PreviewResult, St
 #[tauri::command]
 fn open_with_system(path: String) -> Result<(), String> {
     use std::path::PathBuf;
+
     // Security: basic check
     if path.contains("..") {
         return Err("Invalid path".into());
     }
+
     let full_path = PathBuf::from(&path);
+    let extension = full_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    if let Some(app_path) = open_with_specific_app(&extension, &full_path) {
+        return app_path;
+    }
+
     open::that(&full_path).map_err(|e| format!("Failed to open file: {}", e))
+}
+
+fn open_with_specific_app(extension: &str, full_path: &PathBuf) -> Option<Result<(), String>> {
+    #[cfg(windows)] {
+        match extension {
+            "doc" | "docx" => {
+                return Some(run_command("winword.exe", &[full_path.to_string_lossy().as_ref()]));
+            }
+            "xls" | "xlsx" => {
+                return Some(run_command("excel.exe", &[full_path.to_string_lossy().as_ref()]));
+            }
+            "ppt" | "pptx" => {
+                return Some(run_command("powerpnt.exe", &[full_path.to_string_lossy().as_ref()]));
+            }
+            _ => {}
+        }
+    }
+
+    #[cfg(not(windows))] {
+        match extension {
+            "txt" | "md" | "json" | "js" | "ts" | "html" | "css" | "xml" | "csv" | "rs" | "py" | "toml" | "yaml" | "yml" | "sh" | "bash" | "java" | "cpp" | "c" | "h" | "hpp" | "php" | "rb" | "go" | "sql" | "ini" | "cfg" | "conf" | "log" | "env" | "gitignore" | "dockerfile" | "makefile" | "jsx" | "tsx" | "vue" | "svelte" => {
+                return Some(run_command("code", &[full_path.to_string_lossy().as_ref()]));
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+fn run_command(program: &str, args: &[&str]) -> Result<(), String> {
+    let mut command = std::process::Command::new(program);
+    command.args(args);
+
+    command
+        .status()
+        .map(|status| {
+            if status.success() {
+                Ok(())
+            } else {
+                Err(format!("Failed to launch {}", program))
+            }
+        })
+        .unwrap_or_else(|_| Err(format!("Failed to launch {}", program)))
 }
 
 // ─── Helpers ───
