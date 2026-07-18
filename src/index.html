@@ -444,7 +444,7 @@ function openFileAt(idx){
     handleFileClick(idx);
   } else {
     const full = rootPath.replace(/[\\/]$/,'') + '/' + f.rel_path;
-    openPath(full).catch(()=>{});
+    openPath(full).catch(e => alert('Failed to open file: ' + e));
   }
 }
 

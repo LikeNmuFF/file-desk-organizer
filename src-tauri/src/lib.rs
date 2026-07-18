@@ -28,6 +28,7 @@ struct ChatMessage {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 struct FileEntry {
     name: String,
     rel_path: String,
@@ -1176,6 +1177,7 @@ async fn handle_index() -> Html<&'static str> {
 // ─── File Preview + System Open ───
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct PreviewResult {
     mime_type: String,
     size: u64,
