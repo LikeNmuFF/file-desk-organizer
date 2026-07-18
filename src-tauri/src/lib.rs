@@ -15,6 +15,7 @@ use std::fs;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{mpsc, Mutex, RwLock};
 use walkdir::WalkDir;
 
@@ -583,6 +584,44 @@ if (token) { loadFiles(); } else { document.getElementById('loginModal').classLi
 </body>
 </html>"#;
 
+// ─── AI Chat with Retry ───
+
+async fn send_post_with_retry(
+    client: &reqwest::Client,
+    url: &str,
+    headers: Vec<(&str, &str)>,
+    body: serde_json::Value,
+) -> Result<String, String> {
+    let max_retries = 3;
+    for attempt in 0..=max_retries {
+        let mut req = client.post(url);
+        for (key, val) in &headers {
+            req = req.header(*key, *val);
+        }
+        let resp = req
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Network error: {}", e))?;
+
+        let status = resp.status();
+        let text = resp.text().await.map_err(|e| format!("Failed to read response: {}", e))?;
+
+        if status.as_u16() == 429 && attempt < max_retries {
+            let wait_ms = 2000u64 * (1 << attempt);
+            tokio::time::sleep(Duration::from_millis(wait_ms)).await;
+            continue;
+        }
+
+        if !status.is_success() {
+            return extract_error(&text, status);
+        }
+
+        return Ok(text);
+    }
+    unreachable!()
+}
+
 // ─── Tauri Commands ───
 
 #[tauri::command]
@@ -615,21 +654,15 @@ async fn chat_groq(client: &reqwest::Client, api_key: &str, model: &str, message
         "max_tokens": 2048,
     });
 
-    let resp = client
-        .post("https://api.groq.com/openai/v1/chat/completions")
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Network error: {}", e))?;
-
-    let status = resp.status();
-    let text = resp.text().await.map_err(|e| format!("Failed to read response: {}", e))?;
-
-    if !status.is_success() {
-        return extract_error(&text, status);
-    }
+    let text = send_post_with_retry(
+        client,
+        "https://api.groq.com/openai/v1/chat/completions",
+        vec![
+            ("Authorization", &format!("Bearer {}", api_key)),
+            ("Content-Type", "application/json"),
+        ],
+        body,
+    ).await?;
 
     let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("Parse error: {}", e))?;
     v["choices"][0]["message"]["content"]
@@ -646,21 +679,15 @@ async fn chat_openai(client: &reqwest::Client, api_key: &str, model: &str, messa
         "max_tokens": 2048,
     });
 
-    let resp = client
-        .post("https://api.openai.com/v1/chat/completions")
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Network error: {}", e))?;
-
-    let status = resp.status();
-    let text = resp.text().await.map_err(|e| format!("Failed to read response: {}", e))?;
-
-    if !status.is_success() {
-        return extract_error(&text, status);
-    }
+    let text = send_post_with_retry(
+        client,
+        "https://api.openai.com/v1/chat/completions",
+        vec![
+            ("Authorization", &format!("Bearer {}", api_key)),
+            ("Content-Type", "application/json"),
+        ],
+        body,
+    ).await?;
 
     let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("Parse error: {}", e))?;
     v["choices"][0]["message"]["content"]
@@ -670,7 +697,6 @@ async fn chat_openai(client: &reqwest::Client, api_key: &str, model: &str, messa
 }
 
 async fn chat_claude(client: &reqwest::Client, api_key: &str, model: &str, messages: &[ChatMessage]) -> Result<String, String> {
-    // Extract system message (must be separate in Claude API)
     let mut system_text = String::new();
     let mut claude_messages: Vec<serde_json::Value> = Vec::new();
 
@@ -688,8 +714,6 @@ async fn chat_claude(client: &reqwest::Client, api_key: &str, model: &str, messa
         }
     }
 
-    // Ensure messages alternate user/assistant starting with user
-    // Claude requires at least one message, and first must be user
     if claude_messages.is_empty() {
         claude_messages.push(serde_json::json!({
             "role": "user",
@@ -707,22 +731,16 @@ async fn chat_claude(client: &reqwest::Client, api_key: &str, model: &str, messa
         body["system"] = serde_json::json!(system_text);
     }
 
-    let resp = client
-        .post("https://api.anthropic.com/v1/messages")
-        .header("x-api-key", api_key)
-        .header("anthropic-version", "2023-06-01")
-        .header("Content-Type", "application/json")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Network error: {}", e))?;
-
-    let status = resp.status();
-    let text = resp.text().await.map_err(|e| format!("Failed to read response: {}", e))?;
-
-    if !status.is_success() {
-        return extract_error(&text, status);
-    }
+    let text = send_post_with_retry(
+        client,
+        "https://api.anthropic.com/v1/messages",
+        vec![
+            ("x-api-key", api_key),
+            ("anthropic-version", "2023-06-01"),
+            ("Content-Type", "application/json"),
+        ],
+        body,
+    ).await?;
 
     let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("Parse error: {}", e))?;
     v["content"][0]["text"]
@@ -754,7 +772,6 @@ async fn chat_gemini(client: &reqwest::Client, api_key: &str, model: &str, messa
                 "parts": [{ "text": msg.content }]
             });
         } else {
-            // Gemini uses "model" instead of "assistant"
             let role = if msg.role == "assistant" { "model" } else { &msg.role };
             contents.push(serde_json::json!({
                 "role": role,
@@ -763,7 +780,6 @@ async fn chat_gemini(client: &reqwest::Client, api_key: &str, model: &str, messa
         }
     }
 
-    // Ensure at least one content
     if contents.is_empty() {
         contents.push(serde_json::json!({
             "role": "user",
@@ -788,21 +804,15 @@ async fn chat_gemini(client: &reqwest::Client, api_key: &str, model: &str, messa
         resolved_model
     );
 
-    let resp = client
-        .post(&url)
-        .header("x-goog-api-key", api_key)
-        .header("Content-Type", "application/json")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Network error: {}", e))?;
-
-    let status = resp.status();
-    let text = resp.text().await.map_err(|e| format!("Failed to read response: {}", e))?;
-
-    if !status.is_success() {
-        return extract_error(&text, status);
-    }
+    let text = send_post_with_retry(
+        client,
+        &url,
+        vec![
+            ("x-goog-api-key", api_key),
+            ("Content-Type", "application/json"),
+        ],
+        body,
+    ).await?;
 
     let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("Parse error: {}", e))?;
     v["candidates"][0]["content"]["parts"][0]["text"]
@@ -813,7 +823,6 @@ async fn chat_gemini(client: &reqwest::Client, api_key: &str, model: &str, messa
 
 fn extract_error(text: &str, status: reqwest::StatusCode) -> Result<String, String> {
     if let Ok(err) = serde_json::from_str::<serde_json::Value>(text) {
-        // Try common error formats
         let msg = err["error"]["message"]
             .as_str()
             .or_else(|| err["error"]["details"][0]["message"].as_str())

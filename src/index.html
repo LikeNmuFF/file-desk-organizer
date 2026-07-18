@@ -253,6 +253,29 @@
   .ai-welcome h4{ font-family:'Fraunces', serif; font-size:16px; color:var(--ink); margin:0 0 8px; }
   .ai-welcome p{ font-size:12px; line-height:1.6; margin:0; }
 
+  .ai-filelist-toggle{
+    display:flex; align-items:center; gap:6px; padding:6px 16px;
+    font-family:'IBM Plex Mono', monospace; font-size:10px;
+    text-transform:uppercase; letter-spacing:.05em; color:var(--ink-soft);
+    border-top:1px solid var(--line); user-select:none; cursor:pointer;
+  }
+  .ai-filelist-toggle input{ cursor:pointer; accent-color:var(--rust); }
+  .ai-filelist-toggle:hover{ color:var(--ink); }
+  .ai-token-warning{
+    font-size:10px; color:var(--rust); padding:2px 16px 6px;
+    font-family:'IBM Plex Mono', monospace; display:none;
+  }
+  .ai-local-hit{
+    align-self:flex-start; background:var(--paper-deep); color:var(--forest);
+    border:1.5px solid var(--forest); font-size:12px; padding:6px 12px;
+    border-radius:2px; max-width:88%; word-wrap:break-word;
+  }
+  .ai-local-hit .label{
+    display:inline-block; font-size:9px; text-transform:uppercase;
+    letter-spacing:.08em; background:var(--forest); color:var(--paper);
+    padding:1px 6px; border-radius:2px; margin-right:6px;
+  }
+
   /* Settings modal */
   .modal-overlay{
     position:fixed; inset:0; background:rgba(32,41,31,0.5); z-index:200;
@@ -296,7 +319,10 @@
   .share-panel.open{ display:flex; }
   .share-panel-header{
     padding:14px 18px; border-bottom:2px solid var(--ink); display:flex; align-items:center; justify-content:space-between;
+    cursor:grab; user-select:none; touch-action:none;
   }
+  .share-panel-header:active{ cursor:grabbing; }
+  .share-panel.dragging .share-panel-header{ cursor:grabbing; }
   .share-panel-header h3{ font-family:'Fraunces', serif; font-size:16px; margin:0; }
   .share-panel-body{ padding:18px; display:flex; flex-direction:column; gap:14px; }
   .share-panel-body label{
@@ -577,6 +603,10 @@
       <p>Ask me anything about your files, or get tips on organizing them.<br>Using <strong>Groq</strong> — set your API key in settings first.</p>
     </div>
   </div>
+  <label class="ai-filelist-toggle">
+    <input type="checkbox" id="includeFileList"> Include full file list in context
+  </label>
+  <div class="ai-token-warning" id="tokenWarning"></div>
   <div class="ai-input-area">
     <textarea id="aiInput" placeholder="Ask about your files..." rows="1"></textarea>
     <button id="aiSendBtn">Send</button>
@@ -629,7 +659,7 @@
 
 <!-- WiFi Sharing Panel -->
 <div class="share-panel" id="sharePanel">
-  <div class="share-panel-header">
+  <div class="share-panel-header" id="sharePanelHeader" title="Drag to move panel">
     <h3>📡 WiFi Sharing</h3>
     <button class="ghost" id="shareClose" style="width:28px;height:28px;padding:0;font-size:12px;">✕</button>
   </div>
@@ -1164,8 +1194,55 @@ function buildFileContext(){
   const totalSize = fmtSize(allFiles.reduce((a,f)=>a+Number(f.size),0));
   const tags = [...new Set(allFiles.filter(f=>f.tag).map(f=>f.tag))];
   const dupes = allFiles.filter(f=>f.isDupe).length;
-  const sampleFiles = allFiles.slice(0,50).map(f=> f.rel_path).join('\n');
-  return `The user has scanned the folder "${rootPath}" containing ${allFiles.length} files (${totalSize} total) across ${Object.keys(cats).length} categories: ${catList}.${tags.length ? ' Smart tags found: '+tags.join(', ')+'.':''}${dupes ? ' '+dupes+' possible duplicates detected.':''}\n\nFull file list (all ${allFiles.length} files):\n${allFiles.map(f=> f.rel_path).join('\n')}`;
+  const topExts = [...new Set(allFiles.map(f=>f.ext))].filter(Boolean).slice(0,10).join(', ');
+  return `The user has scanned the folder "${rootPath}" containing ${allFiles.length} files (${totalSize} total) across ${Object.keys(cats).length} categories: ${catList}.${tags.length ? ' Smart tags found: '+tags.join(', ')+'.':''}${dupes ? ' '+dupes+' possible duplicates detected.':''}${topExts ? ' File types: '+topExts+'.' : ''} The full file list is available if requested.`;
+}
+
+function buildFullFileContext(){
+  const summary = buildFileContext();
+  return summary + `\n\nFull file list (all ${allFiles.length} files):\n${allFiles.map(f=> f.rel_path).join('\n')}`;
+}
+
+function estimateTokens(text){
+  return Math.ceil(text.length / 4);
+}
+
+function handleLocalQuery(query){
+  if(!allFiles.length || !query) return null;
+  const q = query.toLowerCase().trim();
+
+  const countMatch = q.match(/how\s+many\s+(.+?)\s+files?/i);
+  if(countMatch){
+    const term = countMatch[1].toLowerCase();
+    const matched = allFiles.filter(f =>
+      f.category.toLowerCase().includes(term) ||
+      (f.tag && f.tag.toLowerCase().includes(term)) ||
+      f.name.toLowerCase().includes(term)
+    );
+    if(matched.length) return `There are **${matched.length}** files matching "${term}".`;
+  }
+
+  const findPatterns = [
+    /^(find|search|show|list|locate|where\s+(?:is|are))\s+(.+)/i,
+    /^(.+?)\s+(?:files?|documents?|items?)$/i,
+  ];
+  for(const pat of findPatterns){
+    const m = q.match(pat);
+    if(m){
+      const term = (m[2] || m[1]).toLowerCase();
+      const matches = searchFiles(term);
+      if(matches.length > 0){
+        const lines = matches.slice(0,20).map(f =>
+          `• **${f.name}** — ${f.category}${f.tag ? ' → '+f.tag : ''} (${fmtSize(Number(f.size))})`
+        ).join('\n');
+        const more = matches.length > 20 ? `\n… and ${matches.length - 20} more.` : '';
+        return `Found **${matches.length}** file(s) matching "${term}":\n${lines}${more}`;
+      }
+      return `No files found matching "${term}". Try a different search term.`;
+    }
+  }
+
+  return null;
 }
 
 function searchFiles(query){
@@ -1253,6 +1330,8 @@ function formatMarkdown(text){
     .replace(/\n/g, '<br>');
 }
 
+const MAX_HISTORY = 12;
+
 async function sendChat(){
   if(sending) return;
   const text = aiInput.value.trim();
@@ -1268,6 +1347,22 @@ async function sendChat(){
   if(welcome) welcome.remove();
 
   renderUserMsg(text);
+
+  // Try local search first — no API call needed
+  const localResult = handleLocalQuery(text);
+  if(localResult){
+    chatHistory.push({ role:'user', content: text });
+    chatHistory.push({ role:'assistant', content: localResult });
+    const div = document.createElement('div');
+    div.className = 'ai-msg ai-local-hit';
+    div.innerHTML = `<span class="label">⚡ Quick result</span>${localResult.replace(/\n/g, '<br>')}`;
+    aiMessages.appendChild(div);
+    aiMessages.scrollTop = aiMessages.scrollHeight;
+    sending = false;
+    aiSendBtn.disabled = false;
+    aiInput.focus();
+    return;
+  }
 
   const typing = document.createElement('div');
   typing.className = 'ai-typing';
@@ -1292,15 +1387,28 @@ When the user asks to find files, use the file context provided. You can list ma
 Always give direct, actionable answers. Skip pleasantries.`
   };
 
-  const ctx = buildFileContext();
+  const includeFullList = document.getElementById('includeFileList').checked;
+  const ctx = includeFullList ? buildFullFileContext() : buildFileContext();
   const messages = [systemMsg];
   if(ctx) messages.push({ role:'user', content: `[System: Current file context — ${ctx}]` });
-  messages.push(...chatHistory);
+  messages.push(...chatHistory.slice(-MAX_HISTORY));
+
+  // Warn about token usage
+  const totalChars = messages.reduce((a, m) => a + m.content.length, 0);
+  const estimatedTokens = estimateTokens(totalChars);
+  const warningEl = document.getElementById('tokenWarning');
+  if(estimatedTokens > 25000){
+    warningEl.textContent = `⚠ Large context (~${estimatedTokens.toLocaleString()} tokens). This may hit API rate limits. Use the file list toggle above to reduce.`;
+    warningEl.style.display = 'block';
+  } else {
+    warningEl.style.display = 'none';
+  }
 
   try{
     const resp = await invoke('ai_chat', { messages, apiKey, model: selectedModel, provider: currentProvider });
     chatHistory.push({ role:'assistant', content: resp });
     typing.remove();
+    warningEl.style.display = 'none';
     renderAssistantMsg(resp);
   }catch(e){
     typing.remove();
@@ -1419,6 +1527,7 @@ async function undoBatch(batchId) {
 // ---- WiFi Sharing ----
 const shareToggle = document.getElementById('shareToggle');
 const sharePanel = document.getElementById('sharePanel');
+const sharePanelHeader = document.getElementById('sharePanelHeader');
 const shareClose = document.getElementById('shareClose');
 const sharePassword = document.getElementById('sharePassword');
 const shareStartBtn = document.getElementById('shareStartBtn');
@@ -1431,6 +1540,53 @@ const shareUrl = document.getElementById('shareUrl');
 const shareError = document.getElementById('shareError');
 
 let sharingActive = false;
+let isDraggingSharePanel = false;
+let shareDragOffsetX = 0;
+let shareDragOffsetY = 0;
+
+function clampSharePanelPosition(x, y) {
+  const padding = 12;
+  const maxX = Math.max(padding, window.innerWidth - sharePanel.offsetWidth - padding);
+  const maxY = Math.max(padding, window.innerHeight - sharePanel.offsetHeight - padding);
+  return {
+    x: Math.min(Math.max(x, padding), maxX),
+    y: Math.min(Math.max(y, padding), maxY)
+  };
+}
+
+function setSharePanelPosition(x, y) {
+  const clamped = clampSharePanelPosition(x, y);
+  sharePanel.style.left = `${clamped.x}px`;
+  sharePanel.style.top = `${clamped.y}px`;
+  sharePanel.style.right = 'auto';
+  sharePanel.style.bottom = 'auto';
+}
+
+function startSharePanelDrag(event) {
+  if (!sharePanel.classList.contains('open')) return;
+  const rect = sharePanel.getBoundingClientRect();
+  shareDragOffsetX = event.clientX - rect.left;
+  shareDragOffsetY = event.clientY - rect.top;
+  isDraggingSharePanel = true;
+  sharePanel.classList.add('dragging');
+  document.body.style.userSelect = 'none';
+}
+
+function moveSharePanel(event) {
+  if (!isDraggingSharePanel) return;
+  setSharePanelPosition(event.clientX - shareDragOffsetX, event.clientY - shareDragOffsetY);
+}
+
+function stopSharePanelDrag() {
+  if (!isDraggingSharePanel) return;
+  isDraggingSharePanel = false;
+  sharePanel.classList.remove('dragging');
+  document.body.style.userSelect = '';
+}
+
+sharePanelHeader.addEventListener('mousedown', startSharePanelDrag);
+window.addEventListener('mousemove', moveSharePanel);
+window.addEventListener('mouseup', stopSharePanelDrag);
 
 shareToggle.addEventListener('click', ()=>{
   sharePanel.classList.toggle('open');
