@@ -868,6 +868,11 @@ fn scan_folder_internal(path: &str) -> Vec<FileEntry> {
             .ok()
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_millis() as u64)
+            .or_else(|| {
+                meta.created().ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis() as u64)
+            })
             .unwrap_or(0);
         files.push(FileEntry {
             name,
