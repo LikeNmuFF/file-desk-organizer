@@ -765,9 +765,9 @@ version = "1.0.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
+ "dunce",
  "hex",
  "once_cell",
- "open",
  "qrcode",
  "rand",
  "reqwest 0.12.28",

@@ -1229,35 +1229,39 @@ fn is_text_extension(ext: &str) -> bool {
 
 #[tauri::command]
 fn read_file_preview(root: String, rel_path: String) -> Result<PreviewResult, String> {
-    let full_path = PathBuf::from(&root).join(&rel_path);
+    let root = PathBuf::from(&root);
+    
+    // Normalize the relative path for the current OS (Windows uses backslashes)
+    let normalized_rel_path = rel_path.replace('/', "\\");
+    let full_path = root.join(normalized_rel_path);
 
-    // Security: prevent directory traversal
-    let canonical = full_path.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
-    let root_canonical = PathBuf::from(&root).canonicalize().map_err(|e| format!("Invalid root: {}", e))?;
+    // Security: prevent directory traversal using canonicalization
+    let canonical = dunce::canonicalize(&full_path).map_err(|e| format!("Invalid path: {}", e))?;
+    let root_canonical = dunce::canonicalize(&root).map_err(|e| format!("Invalid root: {}", e))?;
     if !canonical.starts_with(&root_canonical) {
         return Err("Access denied: path outside root folder".into());
     }
 
-    if !full_path.exists() || !full_path.is_file() {
+    if !canonical.exists() || !canonical.is_file() {
         return Err("File not found".into());
     }
 
-    let ext = full_path
+    let ext = canonical
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_lowercase();
 
-    let name = full_path
+    let name = canonical
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("")
         .to_string();
 
-    let meta = fs::metadata(&full_path).map_err(|e| format!("Metadata error: {}", e))?;
+    let meta = fs::metadata(&canonical).map_err(|e| format!("Metadata error: {}", e))?;
     let mime = mime_for_extension(&ext).to_string();
     let is_text = is_text_extension(&ext);
-    let bytes = fs::read(&full_path).map_err(|e| format!("Read error: {}", e))?;
+    let bytes = fs::read(&canonical).map_err(|e| format!("Read error: {}", e))?;
 
     // Cap at 10MB for preview
     let capped = bytes.len() > 10 * 1024 * 1024;
@@ -1278,39 +1282,48 @@ fn read_file_preview(root: String, rel_path: String) -> Result<PreviewResult, St
 }
 
 #[tauri::command]
-fn open_with_system(path: String) -> Result<(), String> {
+fn open_with_system(app_handle: tauri::AppHandle, path: String) -> Result<(), String> {
     use std::path::PathBuf;
-
-    // Security: basic check
-    if path.contains("..") {
-        return Err("Invalid path".into());
-    }
+    use tauri_plugin_opener::OpenerExt;
 
     let full_path = PathBuf::from(&path);
-    let extension = full_path
+    
+    if !full_path.exists() {
+        return Err("File not found".into());
+    }
+    
+    if !full_path.is_file() {
+        return Err("Not a file".into());
+    }
+    
+    let canonical_path = dunce::canonicalize(&full_path)
+        .map_err(|e| format!("Invalid path: {}", e))?;
+    
+    let extension = canonical_path
         .extension()
         .and_then(|ext| ext.to_str())
         .unwrap_or("")
         .to_lowercase();
 
-    if let Some(app_path) = open_with_specific_app(&extension, &full_path) {
+    if let Some(app_path) = open_with_specific_app(&extension, &canonical_path) {
         return app_path;
     }
 
-    open::that(&full_path).map_err(|e| format!("Failed to open file: {}", e))
+    app_handle.opener()
+        .open_path(canonical_path.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| {
+            eprintln!("[deskmatee] open_with_system failed for {}: {}", canonical_path.display(), e);
+            format!("Failed to open file: {}", e)
+        })
 }
 
 fn open_with_specific_app(extension: &str, full_path: &PathBuf) -> Option<Result<(), String>> {
     #[cfg(windows)] {
         match extension {
-            "doc" | "docx" => {
-                return Some(run_command("winword.exe", &[full_path.to_string_lossy().as_ref()]));
-            }
-            "xls" | "xlsx" => {
-                return Some(run_command("excel.exe", &[full_path.to_string_lossy().as_ref()]));
-            }
-            "ppt" | "pptx" => {
-                return Some(run_command("powerpnt.exe", &[full_path.to_string_lossy().as_ref()]));
+            "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "odt" | "ods" | "odp" | "rtf" => {
+                // Use the system's default application for Office files
+                // This will use whatever application is associated with the file type
+                return None; // Fall through to opener plugin below
             }
             _ => {}
         }

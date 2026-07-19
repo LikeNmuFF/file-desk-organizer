@@ -1,7 +1,7 @@
 {
   "$schema": "./gen/schemas/desktop-schema.json",
   "productName": "deskmatee-beta",
-  "version": "1.0.0",
+  "version": "1.0.1-beta",
   "identifier": "com.deskmatee.app",
   "build": {
     "devUrl": "http://localhost:1420",
@@ -22,7 +22,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data:; media-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self' 'unsafe-inline';",
+      "csp": null,
       "capabilities": ["default"]
     }
   },

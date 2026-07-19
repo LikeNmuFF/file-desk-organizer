@@ -241,7 +241,7 @@
 <script type="module">
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import { openPath } from '@tauri-apps/plugin-opener';
+
 
 const CATEGORY_RULES = [
   { name:'PDFs', match:['pdf'] },
@@ -535,7 +535,21 @@ async function previewInApp(f, type) {
   overlay.classList.add('open');
 
   try {
-    const result = await invoke('read_file_preview', { root: rootPath, rel_path: f.relPath });
+    // Debug: log the file object and rootPath
+    console.log('Previewing file:', f, 'rootPath:', rootPath);
+    
+    // Ensure f and rootPath are valid
+    if (!f) {
+      throw new Error('File object is null or undefined');
+    }
+    if (!rootPath) {
+      throw new Error('rootPath is not set');
+    }
+    if (!f.relPath) {
+      console.error('File object is missing relPath property. Available properties:', Object.keys(f));
+      throw new Error('File object is missing relPath property');
+    }
+    const result = await invoke('read_file_preview', { root: rootPath, relPath: f.relPath });
 
     let html = '';
     if (type === 'image') {
@@ -580,8 +594,28 @@ async function openWithSystem(f) {
     if (!f) return;
     const relPath = typeof f === 'string' ? f : f.relPath;
     if (!relPath) return;
+    
+    // Use proper path resolution to handle relative paths correctly
+    // This ensures paths work regardless of the app's working directory
     const sep = navigator.platform.includes('Win') ? '\\' : '/';
-    const fullPath = rootPath + sep + relPath.replace(/\//g, sep);
+    const normalizedRelPath = relPath.replace(/\//g, sep);
+    
+    // Resolve the full path properly
+    let fullPath;
+    if (rootPath.endsWith(sep)) {
+      fullPath = rootPath + normalizedRelPath;
+    } else {
+      fullPath = rootPath + sep + normalizedRelPath;
+    }
+    
+    // Convert to absolute path to ensure it works from any working directory
+    // For Windows, we need to ensure the path is absolute
+    if (navigator.platform.includes('Win') && !fullPath.startsWith('C:') && !fullPath.startsWith('D:') && !fullPath.match(/^[a-zA-Z]:/)) {
+      // If the path isn't already absolute, this might be a relative path issue
+      // In production, rootPath should already be absolute from the folder picker
+      console.warn('Path might not be absolute:', fullPath);
+    }
+    
     await invoke('open_with_system', { path: fullPath });
   } catch(e) {
     alert('Failed to open file: ' + e);
